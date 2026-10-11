@@ -232,6 +232,12 @@ export default {
           data: [
             { id: "deepseek-reasoner", object: "model", created: 1700000000, owned_by: "deepseek" },
             { id: "deepseek-chat", object: "model", created: 1700000000, owned_by: "deepseek" },
+            { id: "deepseek-flash", object: "model", created: 1700000000, owned_by: "deepseek" },
+            { id: "deepseek-v4-pro", object: "model", created: 1700000000, owned_by: "deepseek" },
+            { id: "deepseek-v4.1-flash", object: "model", created: 1700000000, owned_by: "deepseek" },
+            { id: "gpt-4o", object: "model", created: 1700000000, owned_by: "openai" },
+            { id: "gpt-4o-mini", object: "model", created: 1700000000, owned_by: "openai" },
+            { id: "claude-3-5-sonnet", object: "model", created: 1700000000, owned_by: "anthropic" },
           ],
         }),
         { headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
@@ -251,7 +257,9 @@ async function handleChatCompletion(body, token) {
   const tools = body.tools || [];
   const isStream = body.stream === true;
   const model = body.model || "deepseek-reasoner";
-  const thinkingEnabled = !model.includes("chat") || model.includes("r1") || model.includes("reasoner");
+  const mLower = model.toLowerCase();
+  const isFastMode = mLower.includes("chat") || mLower.includes("flash") || mLower.includes("mini");
+  const thinkingEnabled = !isFastMode;
 
   const prompt = formatPromptWithTools(messages, tools);
 
