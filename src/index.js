@@ -710,81 +710,116 @@ function renderSetupHtml(origin) {
       margin-bottom: 20px;
     }
 
-    /* Bookmarklet Box */
-    .bookmarklet-box {
-      border: 1px dashed var(--border-dark);
-      border-radius: 6px;
-      padding: 20px;
-      margin: 16px 0;
+    /* Hero Action Card (Step 1) */
+    .hero-action-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
       background: #fafafa;
+      overflow: hidden;
+      margin: 18px 0;
+    }
+    .hero-action-body {
+      padding: 30px 20px 26px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
       text-align: center;
     }
     .bookmarklet-btn {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
       background: #000000;
       color: #ffffff;
       text-decoration: none;
-      padding: 11px 22px;
-      border-radius: 4px;
-      font-size: 13.5px;
+      padding: 13px 28px;
+      border-radius: 6px;
+      font-size: 14px;
       font-weight: 600;
       cursor: grab;
-      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      user-select: none;
+      transition: background 0.15s ease, transform 0.15s ease;
     }
     .bookmarklet-btn:hover {
       background: #262626;
+      transform: translateY(-1px);
+    }
+    .bookmarklet-btn:active {
+      cursor: grabbing;
     }
     .drag-hint {
+      margin-top: 14px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .drag-subhint {
       font-size: 12.5px;
       color: var(--text-muted);
-      margin-top: 6px;
+      margin-top: 4px;
     }
-    .tip-box {
-      background: #fafafa;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 12px 14px;
-      margin-top: 14px;
+    .hero-action-footer {
+      border-top: 1px solid var(--border);
+      background: #f4f4f4;
+      padding: 12px 18px;
       font-size: 12.5px;
       color: var(--text);
-      line-height: 1.45;
-      text-align: left;
-    }
-    .callout-box {
-      border: 1px solid #111111;
-      background: #fafafa;
-      border-radius: 6px;
-      padding: 14px 16px;
-      margin-bottom: 18px;
-      font-size: 13px;
-      line-height: 1.5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      text-align: center;
+      line-height: 1.4;
     }
 
-    /* Instruction steps list */
-    .guide-step {
+    /* Clean Step Flow Cards (Step 2) */
+    .flow-steps {
       display: flex;
-      gap: 14px;
-      margin-bottom: 16px;
-      align-items: flex-start;
+      flex-direction: column;
+      gap: 12px;
+      margin: 18px 0;
     }
-    .guide-num {
-      width: 22px;
-      height: 22px;
+    .flow-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 16px 18px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fafafa;
+      transition: border-color 0.15s ease;
+    }
+    .flow-item:hover {
+      border-color: #cccccc;
+    }
+    .flow-badge {
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
-      background: #111111;
+      background: #000000;
       color: #ffffff;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       flex-shrink: 0;
       margin-top: 2px;
     }
-    .guide-body {
+    .flow-content {
       flex: 1;
-      font-size: 13.5px;
-      line-height: 1.5;
+    }
+    .flow-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+    .flow-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.45;
     }
 
     /* Copy Rows */
@@ -837,12 +872,16 @@ function renderSetupHtml(origin) {
     }
     kbd {
       display: inline-block;
-      padding: 2px 6px;
+      padding: 1px 6px;
       font-family: var(--font-mono);
       font-size: 11px;
+      font-weight: 600;
       background: #ffffff;
-      border: 1px solid #111111;
-      border-radius: 3px;
+      border: 1px solid #cccccc;
+      border-radius: 4px;
+      box-shadow: 0 1px 0 rgba(0,0,0,0.1);
+      color: #111111;
+      margin: 0 2px;
     }
 
     /* Action Buttons */
@@ -1003,18 +1042,21 @@ function renderSetupHtml(origin) {
     <div id="step-panel-1" class="step-panel card">
       <div class="card-title">
         <span class="step-badge">1</span>
-        <span>Add the Key Grabber to Your Browser</span>
+        <span>Add Key Grabber to Bookmarks</span>
       </div>
-      <p class="card-desc">Drag this button to your browser's Bookmarks bar. This will let you grab your DeepSeek key in 1 click from your browser:</p>
+      <p class="card-desc">Drag this button up to your browser's Bookmarks bar. This will let you grab your DeepSeek key in 1 click whenever you need it:</p>
 
-      <div class="bookmarklet-box">
-        <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('💡 Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
-          ⭐ DeepSeek Key Grabber
-        </a>
-        <div class="drag-hint">↑ Click and drag the black button directly into your browser's bookmarks bar</div>
-
-        <div class="tip-box">
-          💡 <strong>Don't see your bookmarks bar?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to show it.
+      <div class="hero-action-card">
+        <div class="hero-action-body">
+          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('💡 Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+            <span>⭐</span>
+            <span>DeepSeek Key Grabber</span>
+          </a>
+          <div class="drag-hint">⤹ Click and drag this button up into your bookmarks bar</div>
+          <div class="drag-subhint">Once placed in your bookmarks, you can get your key anytime with a single click.</div>
+        </div>
+        <div class="hero-action-footer">
+          <span>💡 <strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
         </div>
       </div>
 
@@ -1030,45 +1072,52 @@ function renderSetupHtml(origin) {
         <span class="step-badge">2</span>
         <span>Get Your Key from DeepSeek</span>
       </div>
-      <p class="card-desc">Follow these 3 quick steps on DeepSeek to copy your key:</p>
+      <p class="card-desc">Follow these 3 simple steps to copy your key directly from your browser session:</p>
 
-      <div class="callout-box">
-        <strong>⚠️ Important: Log into DeepSeek First</strong><br>
-        Make sure you are logged into <a href="https://chat.deepseek.com" target="_blank" style="color: #000000; font-weight: 700;">chat.deepseek.com</a>. If you aren't logged in, the bookmark cannot find your key!
-      </div>
-
-      <div class="guide-step">
-        <div class="guide-num">1</div>
-        <div class="guide-body">
-          <strong>Open DeepSeek:</strong> Click the button below to open DeepSeek in a new tab:
-          <div style="margin: 8px 0;">
-            <a href="https://chat.deepseek.com" target="_blank" class="btn-primary" style="font-size: 12px; padding: 7px 14px;">
-              Open chat.deepseek.com ↗
-            </a>
+      <div class="flow-steps">
+        <div class="flow-item">
+          <div class="flow-badge">1</div>
+          <div class="flow-content">
+            <div class="flow-title">Open DeepSeek & Sign In</div>
+            <p class="flow-desc">
+              Open DeepSeek in a new browser tab. Make sure you are signed in so your account session is active.
+            </p>
+            <div style="margin-top: 10px;">
+              <a href="https://chat.deepseek.com" target="_blank" class="btn-primary" style="font-size: 12.5px; padding: 7px 16px; display: inline-flex; align-items: center; gap: 6px;">
+                <span>Open chat.deepseek.com</span> ↗
+              </a>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="guide-step">
-        <div class="guide-num">2</div>
-        <div class="guide-body">
-          <strong>Log In:</strong> If you are not already logged in, sign in to your free DeepSeek account.
+        <div class="flow-item">
+          <div class="flow-badge">2</div>
+          <div class="flow-content">
+            <div class="flow-title">Click the Bookmarklet</div>
+            <p class="flow-desc">
+              While on the <strong>chat.deepseek.com</strong> tab, click the <strong>⭐ DeepSeek Key Grabber</strong> bookmark in your browser bar.
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div class="guide-step">
-        <div class="guide-num">3</div>
-        <div class="guide-body">
-          <strong>Click the Bookmark:</strong> Click your <strong>⭐ DeepSeek Key Grabber</strong> bookmark in your browser bar. A popup will confirm your API key is copied!
+        <div class="flow-item">
+          <div class="flow-badge">3</div>
+          <div class="flow-content">
+            <div class="flow-title">Key Copied to Clipboard</div>
+            <p class="flow-desc">
+              A popup will confirm the key is copied. Your raw API key is now on your clipboard (without "Bearer").
+            </p>
+          </div>
         </div>
       </div>
 
       <div class="wizard-nav">
         <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
-        <div style="display: flex; gap: 12px; align-items: center;">
-          <button class="btn-text" onclick="goToStep(4)">Skip to App Setup →</button>
-          <button class="btn-primary" onclick="goToStep(3)">Next: Verify Key →</button>
-        </div>
+        <button class="btn-primary" onclick="goToStep(3)">Next: Verify Key →</button>
+      </div>
+
+      <div style="text-align: center; margin-top: 14px;">
+        <button class="btn-text" onclick="goToStep(4)" style="font-size: 12px; color: var(--text-subtle);">Already have your key? Skip to Step 4 →</button>
       </div>
     </div>
 
