@@ -42,23 +42,32 @@ function getCorsHeaders() {
   };
 }
 
+// Normalize DSML tags across fullwidth/halfwidth and arbitrary whitespace
+function normalizeDSML(text) {
+  if (!text) return "";
+  let s = text.replace(/｜/g, "|");
+  // Normalize any variation: < | | DSML | | ... >, < DSML ... >, <|DSML| ...> into canonical <||DSML|| ...>
+  s = s.replace(/<\s*(\/?)\s*\|*[\s|]*DSML[\s|]*\|*\s*/gi, "<$1||DSML|| ");
+  return s;
+}
+
 // DSML Tool Calling Parser
 function parseDSML(text) {
   if (!text) return null;
-  const norm = text.replace(/｜/g, "|");
+  const norm = normalizeDSML(text);
 
-  // Check if there are any invoke blocks: <|...DSML...| invoke name="...">
-  const firstInvokeMatch = norm.match(/<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>/i);
+  // Check if there are any invoke blocks (allow name attribute in any position with single/double/no quotes)
+  const firstInvokeMatch = norm.match(/<\|+DSML\|+\s*invoke\b[^>]*?\bname=["']?([^"'\s>]+)["']?[^>]*>/i);
   if (!firstInvokeMatch) {
     return null;
   }
 
-  // Find where the DSML content starts (could be <|DSML| calls> or directly <|DSML| invoke>)
+  // Find where the DSML content starts (could be <||DSML|| calls> or directly <||DSML|| invoke>)
   const firstTagMatch = norm.match(/<\|+DSML\|+\s*(?:calls|tool_calls|invoke)[^>]*>/i);
   const contentBefore = firstTagMatch ? norm.substring(0, firstTagMatch.index).trim() : "";
 
   const toolCalls = [];
-  const invokeRegex = /<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*invoke[^>]*>|(?=<\|+DSML\|+\s*invoke)|<\/\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>|$)/gi;
+  const invokeRegex = /<\|+DSML\|+\s*invoke\b[^>]*?\bname=["']?([^"'\s>]+)["']?[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*invoke[^>]*>|(?=<\|+DSML\|+\s*invoke)|<\/\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>|$)/gi;
   let invMatch;
   let idx = 0;
 
@@ -67,7 +76,7 @@ function parseDSML(text) {
     const paramsBlock = invMatch[2];
 
     const params = {};
-    const paramRegex = /<\|+DSML\|+\s*parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*parameter[^>]*>|(?=<\|+DSML\|+\s*parameter)|<\/\|+DSML\|+\s*invoke[^>]*>|$)/gi;
+    const paramRegex = /<\|+DSML\|+\s*parameter\b[^>]*?\bname=["']?([^"'\s>]+)["']?[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*parameter[^>]*>|(?=<\|+DSML\|+\s*parameter)|<\/\|+DSML\|+\s*invoke[^>]*>|$)/gi;
     let pMatch;
     while ((pMatch = paramRegex.exec(paramsBlock)) !== null) {
       const pName = pMatch[1];
@@ -244,12 +253,12 @@ function formatPromptWithTools(messages, tools) {
     const toolsDesc = JSON.stringify(tools, null, 2);
     promptParts.push(
       `[SYSTEM INSTRUCTION: TOOLS AVAILABLE]\nYou have access to the following tools:\n${toolsDesc}\n\n` +
-      `When you need to execute a tool, write your response in this exact format:\n` +
-      `<｜｜DSML｜｜ calls>\n` +
-      `<｜｜DSML｜｜ invoke name="tool_name">\n` +
-      `<｜｜DSML｜｜ parameter name="arg_name" string="true">value</｜｜DSML｜｜ parameter>\n` +
-      `</｜｜DSML｜｜ invoke>\n` +
-      `</｜｜DSML｜｜ calls>\n`
+      `When you need to execute a tool, write your response in this exact format (do not add spaces inside tag delimiters):\n` +
+      `<||DSML|| calls>\n` +
+      `<||DSML|| invoke name="tool_name">\n` +
+      `<||DSML|| parameter name="arg_name" string="true">value</||DSML|| parameter>\n` +
+      `</||DSML|| invoke>\n` +
+      `</||DSML|| calls>\n`
     );
   }
 
@@ -551,8 +560,10 @@ async function handleChatCompletion(body, token) {
       let buffer = "";
       let currentFragmentType = thinkingEnabled ? "THINK" : "RESPONSE";
       let accumulatedResponseText = "";
+      let accumulatedThinkText = "";
       let pendingResponseBuffer = "";
       let inToolCallBlock = false;
+      let hasEmittedContent = false;
 
       async function handleResponseChunk(text) {
         if (!text) return;
@@ -564,24 +575,35 @@ async function handleChatCompletion(body, token) {
 
         pendingResponseBuffer += text;
 
-        const tagMatch = pendingResponseBuffer.search(/<[|｜]/);
+        // Detect any DSML tag start with optional whitespace: < | or <| or <｜ or <DSML
+        const tagMatch = pendingResponseBuffer.search(/<\s*(\/?)\s*(?:[|｜]|DSML)/i);
         if (tagMatch !== -1) {
           inToolCallBlock = true;
           const beforeTag = pendingResponseBuffer.substring(0, tagMatch);
           if (beforeTag) {
             await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", beforeTag);
+            hasEmittedContent = true;
           }
           pendingResponseBuffer = "";
-        } else if (pendingResponseBuffer.endsWith("<")) {
-          const safeText = pendingResponseBuffer.slice(0, -1);
-          if (safeText) {
-            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", safeText);
-          }
-          pendingResponseBuffer = "<";
-        } else {
-          await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", pendingResponseBuffer);
-          pendingResponseBuffer = "";
+          return;
         }
+
+        // Check if there is an uncompleted tag start at the end of the buffer
+        const partialTagMatch = pendingResponseBuffer.match(/<\s*(\/?)\s*(?:[|｜]|D|DS|DSM)?$/i);
+        if (partialTagMatch) {
+          const cutIdx = partialTagMatch.index;
+          if (cutIdx > 0) {
+            const safePrefix = pendingResponseBuffer.substring(0, cutIdx);
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", safePrefix);
+            hasEmittedContent = true;
+            pendingResponseBuffer = pendingResponseBuffer.substring(cutIdx);
+          }
+          return;
+        }
+
+        await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", pendingResponseBuffer);
+        hasEmittedContent = true;
+        pendingResponseBuffer = "";
       }
 
       try {
@@ -618,6 +640,7 @@ async function handleChatCompletion(body, token) {
                   const initialContent = data.v.response.fragments[0].content || "";
                   if (initialContent) {
                     if (currentFragmentType === "THINK") {
+                      accumulatedThinkText += initialContent;
                       await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", initialContent);
                     } else {
                       await handleResponseChunk(initialContent);
@@ -630,6 +653,7 @@ async function handleChatCompletion(body, token) {
                   const c = data.v[0].content || "";
                   if (c) {
                     if (currentFragmentType === "THINK") {
+                      accumulatedThinkText += c;
                       await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", c);
                     } else {
                       await handleResponseChunk(c);
@@ -639,6 +663,7 @@ async function handleChatCompletion(body, token) {
 
                 if (data.v && typeof data.v === "string" && (!data.p || !data.p.includes("status"))) {
                   if (currentFragmentType === "THINK") {
+                    accumulatedThinkText += data.v;
                     await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", data.v);
                   } else {
                     await handleResponseChunk(data.v);
@@ -651,11 +676,16 @@ async function handleChatCompletion(body, token) {
 
         if (!inToolCallBlock && pendingResponseBuffer) {
           await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", pendingResponseBuffer);
+          hasEmittedContent = true;
           pendingResponseBuffer = "";
         }
 
         const dsml = parseDSML(accumulatedResponseText);
         if (dsml && dsml.toolCalls.length > 0) {
+          if (!hasEmittedContent && dsml.contentBefore) {
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", dsml.contentBefore);
+            hasEmittedContent = true;
+          }
           const toolChunk = {
             id: completionId,
             object: "chat.completion.chunk",
@@ -667,18 +697,38 @@ async function handleChatCompletion(body, token) {
                 delta: {
                   tool_calls: dsml.toolCalls,
                 },
-                finish_reason: "tool_calls",
+                finish_reason: null,
               },
             ],
           };
           await writer.write(encoder.encode(`data: ${JSON.stringify(toolChunk)}\n\n`));
+
+          const finishChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: createdTimestamp,
+            model: model,
+            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+          };
+          await writer.write(encoder.encode(`data: ${JSON.stringify(finishChunk)}\n\n`));
         } else {
           if (inToolCallBlock) {
-            const tagMatch = accumulatedResponseText.search(/<[|｜]/);
-            if (tagMatch !== -1) {
-              const remaining = accumulatedResponseText.substring(tagMatch);
-              await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", remaining);
+            // Strip any raw DSML tags so formatting NEVER leaks into the chat!
+            const cleanText = accumulatedResponseText
+              .replace(/<\s*(\/?)\s*\|*[\s|]*DSML[\s|]*\|*[^>]*>/gi, "")
+              .trim();
+            if (!hasEmittedContent && cleanText) {
+              await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", cleanText);
+              hasEmittedContent = true;
             }
+          }
+
+          // Safety guard for Image 2 ("returned a completed response with no content"):
+          // If no content deltas and no tool calls were emitted, emit a fallback chunk so Cursor never fails!
+          if (!hasEmittedContent) {
+            const fallback = accumulatedResponseText.trim() || accumulatedThinkText.trim() || " ";
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", fallback);
+            hasEmittedContent = true;
           }
 
           const finishChunk = {
@@ -763,9 +813,12 @@ async function handleChatCompletion(body, token) {
       reasoning_content: thinkAccumulated || null,
     };
   } else {
+    const cleanContent = (responseAccumulated || "")
+      .replace(/<\s*(\/?)\s*\|*[\s|]*DSML[\s|]*\|*[^>]*>/gi, "")
+      .trim();
     messageObj = {
       role: "assistant",
-      content: responseAccumulated || thinkAccumulated,
+      content: cleanContent || thinkAccumulated.trim() || " ",
       reasoning_content: thinkAccumulated || null,
     };
   }
