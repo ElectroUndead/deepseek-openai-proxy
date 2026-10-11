@@ -545,7 +545,7 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 // 100% NON-TECHY FRIENDLY, WHITE-THEMED, BLACK & WHITE SETUP PAGE (ZERO CODING)
 function renderSetupHtml(origin) {
   const baseUrl = `${origin}/v1`;
-  const bookmarkletCode = `javascript:(function(){try{if(!window.location.hostname.includes('deepseek.com')){return alert('❌ Key NOT copied: You must be on chat.deepseek.com! Please open chat.deepseek.com, log in, and click this bookmark.');}let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=p.value||p.token||p.userToken||raw;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();if((t.startsWith('"')&&t.endsWith('"'))||(t.startsWith("'")&&t.endsWith("'")))t=t.slice(1,-1).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('❌ Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek API Key to clipboard!');}catch(e){alert('❌ Key NOT copied: '+e);}})();`;
+  const bookmarkletCode = `javascript:(function(){try{if(!window.location.hostname.includes('deepseek.com')){return alert('Key NOT copied: You must be on chat.deepseek.com! Please open chat.deepseek.com, log in, and click this bookmark.');}let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=p.value||p.token||p.userToken||raw;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();if((t.startsWith('"')&&t.endsWith('"'))||(t.startsWith("'")&&t.endsWith("'")))t=t.slice(1,-1).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}navigator.clipboard.writeText(t);alert('Copied DeepSeek API Key to clipboard!');}catch(e){alert('Key NOT copied: '+e);}})();`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1047,15 +1047,14 @@ function renderSetupHtml(origin) {
 
       <div class="hero-action-card">
         <div class="hero-action-body">
-          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('💡 Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
-            <span>⭐</span>
+          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
             <span>DeepSeek Key Grabber</span>
           </a>
-          <div class="drag-hint">⤹ Click and drag this button up into your bookmarks bar</div>
+          <div class="drag-hint">Click and drag this button up into your bookmarks bar</div>
           <div class="drag-subhint">Once placed in your bookmarks, you can get your key anytime with a single click.</div>
         </div>
         <div class="hero-action-footer">
-          <span>💡 <strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>⌘</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
+          <span><strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
         </div>
       </div>
 
@@ -1082,8 +1081,8 @@ function renderSetupHtml(origin) {
               Open DeepSeek in a new browser tab. Make sure you are signed in so your account session is active.
             </p>
             <div style="margin-top: 10px;">
-              <a href="https://chat.deepseek.com" target="_blank" class="btn-primary" style="font-size: 12.5px; padding: 7px 16px; display: inline-flex; align-items: center; gap: 6px;">
-                <span>Open chat.deepseek.com</span> ↗
+              <a href="https://chat.deepseek.com" target="_blank" class="btn-primary" style="font-size: 12.5px; padding: 7px 16px; display: inline-flex; align-items: center;">
+                <span>Open chat.deepseek.com</span>
               </a>
             </div>
           </div>
@@ -1094,7 +1093,7 @@ function renderSetupHtml(origin) {
           <div class="flow-content">
             <div class="flow-title">Click the Bookmarklet</div>
             <p class="flow-desc">
-              While on the <strong>chat.deepseek.com</strong> tab, click the <strong>⭐ DeepSeek Key Grabber</strong> bookmark in your browser bar.
+              While on the <strong>chat.deepseek.com</strong> tab, click the <strong>DeepSeek Key Grabber</strong> bookmark in your browser bar.
             </p>
           </div>
         </div>
@@ -1238,7 +1237,7 @@ for chunk in response:
     <!-- Optional Developer Section -->
     <div class="card">
       <details>
-        <summary>⚙️ Want to host your own dedicated worker? (For Developers Only)</summary>
+        <summary>Want to host your own dedicated worker? (For Developers Only)</summary>
         <p style="font-size: 13px; color: var(--text-muted); margin: 10px 0;">
           If you are a developer and want to deploy this proxy on your own Cloudflare account:
         </p>
@@ -1338,16 +1337,16 @@ npx wrangler deploy</code></pre>
     function copyText(elemId, label) {
       const text = document.getElementById(elemId).textContent;
       navigator.clipboard.writeText(text);
-      showToast('✓ ' + (label || 'Text') + ' copied to clipboard!');
+      showToast((label || 'Text') + ' copied to clipboard!');
     }
 
     function copyVerifiedToken() {
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        showToast('✓ API Key copied to clipboard!');
+        showToast('API Key copied to clipboard!');
       } else {
-        showToast('⚠️ No key available yet. Paste your key above and verify.');
+        showToast('No key available yet. Paste your key above and verify.');
       }
     }
 
@@ -1355,9 +1354,9 @@ npx wrangler deploy</code></pre>
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        showToast('✓ API Key copied to clipboard!');
+        showToast('API Key copied to clipboard!');
       } else {
-        showToast('⚠️ Please complete Step 2 or verify your key in Step 3.');
+        showToast('Please complete Step 2 or verify your key in Step 3.');
       }
     }
 
@@ -1375,7 +1374,7 @@ npx wrangler deploy</code></pre>
       const raw = input.value.trim();
 
       if (!raw) {
-        showToast('⚠️ Please paste your API key in the box first');
+        showToast('Please paste your API key in the box first');
         return;
       }
 
@@ -1390,7 +1389,7 @@ npx wrangler deploy</code></pre>
       resBox.style.background = '#fafafa';
       resBox.style.border = '1px solid #111111';
       resBox.style.color = '#000000';
-      resBox.innerHTML = '⏳ Verifying key with DeepSeek and solving PoW challenge...';
+      resBox.innerHTML = 'Verifying key with DeepSeek and solving challenge...';
 
       try {
         const resp = await fetch('/v1/chat/completions', {
@@ -1408,16 +1407,15 @@ npx wrangler deploy</code></pre>
         const data = await resp.json();
         if (resp.ok && data.choices && data.choices[0]) {
           updateApiKeyStep4(cleanKey);
-          showToast('✓ API Key verified and saved to Step 4!');
+          showToast('API Key verified and saved to Step 4!');
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
           resBox.innerHTML = \`
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">✓ Key is active and working!</div>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">Key is active and working!</div>
             <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully and your key is saved for Step 4.</div>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn-copy" onclick="copyVerifiedToken()">📋 Copy Key</button>
-              <button class="btn-primary" style="padding: 6px 14px; font-size: 12px;" onclick="goToStep(4)">Continue to Step 4 →</button>
+            <div>
+              <button class="btn-copy" onclick="copyVerifiedToken()">Copy Key</button>
             </div>
           \`;
         } else {
@@ -1425,15 +1423,15 @@ npx wrangler deploy</code></pre>
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
           const errMsg = data.error ? data.error.message : JSON.stringify(data);
-          resBox.innerHTML = '<strong>❌ Verification failed:</strong> ' + errMsg;
-          showToast('❌ Verification failed');
+          resBox.innerHTML = '<strong>Verification failed:</strong> ' + errMsg;
+          showToast('Verification failed');
         }
       } catch (err) {
         resBox.style.background = '#fafafa';
         resBox.style.border = '1px solid #111111';
         resBox.style.color = '#000000';
-        resBox.innerHTML = '<strong>❌ Network error:</strong> ' + err.message;
-        showToast('❌ Network error: ' + err.message);
+        resBox.innerHTML = '<strong>Network error:</strong> ' + err.message;
+        showToast('Network error: ' + err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Verify Key';
