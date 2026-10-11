@@ -94,23 +94,145 @@ function parseDSML(text) {
   return { contentBefore, toolCalls };
 }
 
+// Parse base64 data URI to raw bytes, mime type, and filename
+function parseDataUri(dataUri) {
+  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  const mimeType = match[1];
+  const b64Data = match[2];
+  const binaryStr = atob(b64Data);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+  let ext = "png";
+  if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = "jpg";
+  else if (mimeType.includes("webp")) ext = "webp";
+  else if (mimeType.includes("gif")) ext = "gif";
+  return { bytes, mimeType, filename: `image.${ext}` };
+}
+
+// Extract binary image data from data URI or web URL
+async function getImageInfo(url) {
+  if (!url || typeof url !== "string") return null;
+  if (url.startsWith("data:")) {
+    return parseDataUri(url);
+  } else if (url.startsWith("http://") || url.startsWith("https://")) {
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return null;
+      const arrayBuffer = await resp.arrayBuffer();
+      const mimeType = resp.headers.get("content-type") || "image/png";
+      let ext = "png";
+      if (mimeType.includes("jpeg") || mimeType.includes("jpg")) ext = "jpg";
+      else if (mimeType.includes("webp")) ext = "webp";
+      else if (mimeType.includes("gif")) ext = "gif";
+      return {
+        bytes: new Uint8Array(arrayBuffer),
+        mimeType: mimeType,
+        filename: `image.${ext}`,
+      };
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+// Collect image URLs from messages array
+function extractImagesFromMessages(messages) {
+  const images = [];
+  for (const m of messages) {
+    if (Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (part && (part.type === "image_url" || part.image_url)) {
+          const url = part.image_url?.url || part.image_url || part.url;
+          if (url && typeof url === "string") {
+            images.push(url);
+          }
+        }
+      }
+    }
+  }
+  return images;
+}
+
+// Upload image attachment to DeepSeek web session
+async function uploadImageToDeepSeek(imageInfo, token, sessionId, baseHeaders) {
+  try {
+    const formData = new FormData();
+    const blob = new Blob([imageInfo.bytes], { type: imageInfo.mimeType });
+    formData.append("file", blob, imageInfo.filename || "image.png");
+
+    const uploadHeaders = {
+      "authorization": token,
+      "origin": "https://chat.deepseek.com",
+      "referer": `https://chat.deepseek.com/a/chat/s/${sessionId}`,
+      "user-agent": baseHeaders["user-agent"],
+      "x-client-platform": "web",
+      "x-client-version": "2.5.0",
+    };
+
+    const uploadResp = await fetch("https://chat.deepseek.com/api/v0/file/upload_file", {
+      method: "POST",
+      headers: uploadHeaders,
+      body: formData,
+    });
+
+    if (!uploadResp.ok) {
+      console.error("DeepSeek image upload HTTP error:", uploadResp.status);
+      return null;
+    }
+
+    const uploadData = await uploadResp.json();
+    if (uploadData.code !== 0 || !uploadData.data || !uploadData.data.biz_data) {
+      console.error("DeepSeek image upload API response error:", uploadData);
+      return null;
+    }
+
+    const biz = uploadData.data.biz_data;
+    const fileId = biz.id || biz.file_id;
+    if (!fileId) return null;
+
+    // Brief poll to wait for file status to transition out of PENDING/UPLOADING
+    for (let poll = 0; poll < 4; poll++) {
+      try {
+        const statusResp = await fetch(
+          `https://chat.deepseek.com/api/v0/file/fetch_files?file_ids=${encodeURIComponent(fileId)}`,
+          {
+            method: "GET",
+            headers: uploadHeaders,
+          }
+        );
+        if (statusResp.ok) {
+          const statusData = await statusResp.json();
+          const files = statusData.data?.biz_data?.files || [];
+          const f = files.find((item) => item.id === fileId);
+          if (f && f.status && !["PENDING", "UPLOADING", "PROCESSING"].includes(f.status.toUpperCase())) {
+            break;
+          }
+        }
+      } catch (e) {}
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
+    return fileId;
+  } catch (err) {
+    console.error("uploadImageToDeepSeek exception:", err);
+    return null;
+  }
+}
+
 function extractMessageContent(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const textParts = [];
-    let hasImages = false;
     for (const part of content) {
       if (part && part.type === "text" && part.text) {
         textParts.push(part.text);
-      } else if (part && (part.type === "image_url" || part.image_url)) {
-        hasImages = true;
       }
     }
-    let res = textParts.join("\n");
-    if (hasImages) {
-      res += "\n\n[Note: User attached an image, but DeepSeek R1/V3 is a text-only model]";
-    }
-    return res;
+    return textParts.join("\n");
   }
   return String(content || "");
 }
@@ -311,7 +433,27 @@ async function handleChatCompletion(body, token) {
     throw lastSessError || new Error("Failed to create DeepSeek session after retries");
   }
 
-  // 2. Obtain & solve PoW challenge with difficulty guard to protect free edge CPU limits
+  // 2. Upload any attached images to DeepSeek session
+  const imageUrls = extractImagesFromMessages(messages);
+  const refFileIds = [];
+  if (imageUrls.length > 0) {
+    for (const imgUrl of imageUrls) {
+      try {
+        const imgInfo = await getImageInfo(imgUrl);
+        if (imgInfo) {
+          const fileId = await uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders);
+          if (fileId) {
+            refFileIds.push(fileId);
+          }
+        }
+      } catch (imgErr) {
+        console.error("Failed uploading image attachment:", imgErr);
+      }
+    }
+  }
+  const uniqueFileIds = [...new Set(refFileIds)];
+
+  // 3. Obtain & solve PoW challenge with difficulty guard to protect free edge CPU limits
   let powHeaderValue = null;
   let lastPowError = null;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -368,12 +510,12 @@ async function handleChatCompletion(body, token) {
     chat_session_id: sessionId,
     parent_message_id: null,
     prompt: prompt,
-    ref_file_ids: [],
+    ref_file_ids: uniqueFileIds,
     thinking_enabled: thinkingEnabled,
     search_enabled: false,
   };
 
-  // 3. Dispatch chat completion with retry on upstream 429/502/503/504
+  // 4. Dispatch chat completion with retry on upstream 429/502/503/504
   let dsResponse = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     dsResponse = await fetch("https://chat.deepseek.com/api/v0/chat/completion", {
