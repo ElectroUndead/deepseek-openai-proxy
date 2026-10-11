@@ -28,14 +28,11 @@ function solveDeepSeekPoW(challengeObj) {
   const stackRetPtr = __wbindgen_add_to_stack_pointer(-16);
 
   try {
-    // Cloudflare Free Tier has a strict 10ms CPU limit.
-    // 5000 iterations takes ~6ms CPU, ensuring the worker isolate is never killed.
-    const safeDifficulty = Math.min(Number(difficulty) || 5000, 5000);
-    wasm_solve(stackRetPtr, challengePtr, challengeBytes.length, prefixPtr, prefixBytes.length, safeDifficulty);
+    wasm_solve(stackRetPtr, challengePtr, challengeBytes.length, prefixPtr, prefixBytes.length, Number(difficulty));
     const dataView = new DataView(memory.buffer);
     const status = dataView.getInt32(stackRetPtr, true);
     if (status === 0) {
-      throw new Error("Unable to solve PoW challenge within safe CPU budget");
+      throw new Error("WASM failed to solve PoW challenge");
     }
     const answer = dataView.getFloat64(stackRetPtr + 8, true);
     return Math.floor(answer);
@@ -506,7 +503,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
 
       // 3. PoW challenge with difficulty retry
       let powHeaderValue = null;
-      for (let powAttempt = 0; powAttempt < 4; powAttempt++) {
+      for (let powAttempt = 0; powAttempt < 8; powAttempt++) {
         try {
           if (powAttempt > 0 && typeof onRetryNotice === "function") {
             await onRetryNotice(powAttempt);
@@ -522,10 +519,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           if (powData.code !== 0) throw new Error(powData.msg || "PoW challenge error");
           const challengeObj = powData.data.biz_data.challenge;
 
-          // If DeepSeek requests high difficulty (>8000), their servers are under high load.
-          // In Cloudflare Free Tier, computing >8000 hashes will exhaust the 10ms CPU limit.
-          if (challengeObj.difficulty > 8000 && powAttempt < 3) {
-            await new Promise((r) => setTimeout(r, 350 * (powAttempt + 1)));
+          if (challengeObj.difficulty > 200000 && powAttempt < 7) {
+            await new Promise((r) => setTimeout(r, 250));
             continue;
           }
 
@@ -540,14 +535,14 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           }));
           break;
         } catch (pe) {
-          if (powAttempt < 3) {
-            await new Promise((r) => setTimeout(r, 350 * (powAttempt + 1)));
+          if (powAttempt < 7) {
+            await new Promise((r) => setTimeout(r, 250 * (powAttempt + 1)));
           }
         }
       }
 
       if (!powHeaderValue) {
-        throw new Error("DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.");
+        throw new Error("DeepSeek PoW challenge failed (503)");
       }
 
       const completionHeaders = {
@@ -578,8 +573,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       // Invalidate session on error
       activeSessionCache.delete(token);
 
-      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
         continue;
       }
 
@@ -588,16 +583,13 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
     } catch (e) {
       lastErr = e;
       activeSessionCache.delete(token);
-      if (e.message && (e.message.includes("high traffic") || e.message.includes("safe CPU budget"))) {
-        break;
-      }
-      if (attempt < 2) {
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      if (attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
       }
     }
   }
 
-  throw lastErr || new Error("DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.");
+  throw lastErr || new Error("Failed to connect to DeepSeek (503)");
 }
 
 // Chat completion with dynamic caller token
@@ -838,7 +830,7 @@ async function handleChatCompletion(body, token) {
           // Safety guard for Image 2 ("returned a completed response with no content"):
           // If no content deltas and no tool calls were emitted, emit a fallback chunk so Cursor never fails!
           if (!hasEmittedContent) {
-            const fallback = accumulatedResponseText.trim() || accumulatedThinkText.trim() || "DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.";
+            const fallback = accumulatedResponseText.trim() || accumulatedThinkText.trim() || " ";
             await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", fallback);
             hasEmittedContent = true;
           }
