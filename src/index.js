@@ -1,6 +1,6 @@
 import wasmModule from "./sha3_wasm_v1.wasm";
 
-// Solve PoW challenge using WebAssembly (for self-hosted private deployments)
+// Solve PoW challenge using WebAssembly in Cloudflare Edge
 async function solveDeepSeekPoW(challengeObj) {
   const instance = await WebAssembly.instantiate(wasmModule, {});
   const { memory, wasm_solve, __wbindgen_add_to_stack_pointer, __wbindgen_export_0: alloc } = instance.exports;
@@ -134,40 +134,61 @@ export default {
 
     // Health check
     if (url.pathname === "/health" || url.pathname === "/api/status") {
-      return new Response(JSON.stringify({ status: "ok", service: "deepseek-setup-assistant" }), {
+      return new Response(JSON.stringify({ status: "ok", service: "deepseek-stateless-proxy" }), {
         headers: { "Content-Type": "application/json", ...getCorsHeaders() },
       });
     }
 
-    // Completions endpoint
+    // Completions endpoint: /v1/chat/completions or /chat/completions
     if (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions") {
       if (request.method !== "POST") {
         return new Response("Method Not Allowed", { status: 405, headers: getCorsHeaders() });
       }
 
-      // Check if self-hosted with private credentials
-      if (env.DEEPSEEK_AUTH_TOKEN && env.DEEPSEEK_AUTH_TOKEN.length > 20) {
-        try {
-          const body = await request.json();
-          return await handleChatCompletion(body, env);
-        } catch (err) {
-          return new Response(
-            JSON.stringify({ error: { message: err.message || "Proxy Error", type: "proxy_error" } }),
-            { status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
-          );
+      // Extract token dynamically from request Authorization header
+      // Every user sends THEIR OWN token from their IDE. No shared server credentials!
+      const authHeader = request.headers.get("authorization") || "";
+      let callerToken = null;
+
+      if (authHeader.startsWith("Bearer ")) {
+        const raw = authHeader.substring(7).trim();
+        // Check if raw is a valid DeepSeek token or JSON payload
+        if (raw.startsWith("{")) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.token) callerToken = parsed.token.startsWith("Bearer ") ? parsed.token : `Bearer ${parsed.token}`;
+          } catch(e) {}
+        } else if (raw.length > 20 && !raw.startsWith("sk-dummy") && !raw.startsWith("dummy")) {
+          callerToken = authHeader;
         }
       }
 
-      // On our public setup guide, shared hosting is intentionally disabled to avoid cross-user rate limits
-      return new Response(
-        JSON.stringify({
-          error: {
-            message: "Hosting completions on this shared setup server is disabled to protect your privacy and prevent shared rate limits. Please complete Step 2 on the setup page to deploy your own free private worker!",
-            type: "self_host_required",
-          },
-        }),
-        { status: 403, headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
-      );
+      // Fallback if self-hosted with private env var
+      if (!callerToken && env.DEEPSEEK_AUTH_TOKEN && env.DEEPSEEK_AUTH_TOKEN.length > 20) {
+        callerToken = env.DEEPSEEK_AUTH_TOKEN;
+      }
+
+      if (!callerToken) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Missing DeepSeek token. Please set your API Key to your DeepSeek token in Cursor/IDE settings! Use the 1-click bookmarklet on our website to grab your token.",
+              type: "auth_required",
+            },
+          }),
+          { status: 401, headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
+        );
+      }
+
+      try {
+        const body = await request.json();
+        return await handleChatCompletion(body, callerToken);
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ error: { message: err.message || "Proxy Error", type: "proxy_error" } }),
+          { status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
+        );
+      }
     }
 
     // Models list
@@ -184,15 +205,15 @@ export default {
       );
     }
 
-    // Serve the clean, white-themed, 1-step-at-a-time setup wizard
-    return new Response(renderSetupHtml(), {
+    // Serve the clean, white-themed, 2-step setup page
+    return new Response(renderSetupHtml(url.origin), {
       headers: { "Content-Type": "text/html; charset=utf-8", ...getCorsHeaders() },
     });
   },
 };
 
-// Completion handler used when user deploys their own private worker
-async function handleChatCompletion(body, env) {
+// Chat completion with dynamic caller token
+async function handleChatCompletion(body, token) {
   const messages = body.messages || [];
   const tools = body.tools || [];
   const isStream = body.stream === true;
@@ -200,11 +221,6 @@ async function handleChatCompletion(body, env) {
   const thinkingEnabled = !model.includes("chat") || model.includes("r1") || model.includes("reasoner");
 
   const prompt = formatPromptWithTools(messages, tools);
-
-  const token = env.DEEPSEEK_AUTH_TOKEN;
-  const wafToken = env.AWS_WAF_TOKEN || "";
-  const sessionIdCookie = env.DS_SESSION_ID || "";
-  const cookieHeader = `smidV2=20260902181842a81f173d2e1128d055a3ec9480855c92002427af5dfc76c30; aws-waf-token=${wafToken}; ds_session_id=${sessionIdCookie}`;
 
   const baseHeaders = {
     "accept": "*/*",
@@ -214,7 +230,6 @@ async function handleChatCompletion(body, env) {
     "origin": "https://chat.deepseek.com",
     "referer": "https://chat.deepseek.com/",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36",
-    "cookie": cookieHeader,
     "x-client-platform": "web",
     "x-client-version": "2.5.0",
   };
@@ -291,9 +306,19 @@ async function handleChatCompletion(body, env) {
       const reader = dsResponse.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let dsmlStreamBuffer = "";
+      let currentFragmentType = thinkingEnabled ? "THINK" : "RESPONSE";
+      let accumulatedResponseText = "";
 
       try {
+        const initialChunk = {
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: createdTimestamp,
+          model: model,
+          choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+        };
+        await writer.write(encoder.encode(`data: ${JSON.stringify(initialChunk)}\n\n`));
+
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -303,55 +328,91 @@ async function handleChatCompletion(body, env) {
           buffer = lines.pop();
 
           for (const line of lines) {
-            if (!line.startsWith("data: ")) continue;
-            const jsonStr = line.substring(6).trim();
-            if (!jsonStr) continue;
+            if (line.startsWith("event: close") || line.includes("[DONE]")) {
+              break;
+            }
+            if (line.startsWith("data:")) {
+              const dataStr = line.substring(5).trim();
+              if (!dataStr) continue;
 
-            try {
-              const chunk = JSON.parse(jsonStr);
-              const choices = chunk.choices || [];
-              if (choices.length === 0) continue;
-              const delta = choices[0].delta || {};
+              try {
+                const data = JSON.parse(dataStr);
 
-              if (delta.type === "thinking" && delta.content) {
-                await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", delta.content);
-              } else if (delta.type === "text" && delta.content) {
-                dsmlStreamBuffer += delta.content;
-                if (!dsmlStreamBuffer.includes("<｜") && !dsmlStreamBuffer.includes("<|")) {
-                  await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "TEXT", dsmlStreamBuffer);
-                  dsmlStreamBuffer = "";
+                if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
+                  currentFragmentType = data.v.response.fragments[0].type || "THINK";
+                  const initialContent = data.v.response.fragments[0].content || "";
+                  if (initialContent) {
+                    if (currentFragmentType === "THINK") {
+                      await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", initialContent);
+                    } else {
+                      accumulatedResponseText += initialContent;
+                    }
+                  }
                 }
-              }
-            } catch (e) {}
+
+                if (data.p === "response/fragments" && data.o === "APPEND" && Array.isArray(data.v) && data.v.length > 0) {
+                  currentFragmentType = data.v[0].type || "RESPONSE";
+                  const c = data.v[0].content || "";
+                  if (c) {
+                    if (currentFragmentType === "THINK") {
+                      await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", c);
+                    } else {
+                      accumulatedResponseText += c;
+                    }
+                  }
+                }
+
+                if (data.v && typeof data.v === "string" && (!data.p || !data.p.includes("status"))) {
+                  if (currentFragmentType === "THINK") {
+                    await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", data.v);
+                  } else {
+                    accumulatedResponseText += data.v;
+                    if (!accumulatedResponseText.includes("<|") && !accumulatedResponseText.includes("<｜")) {
+                      await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", data.v);
+                    }
+                  }
+                }
+              } catch (e) {}
+            }
           }
         }
 
-        if (dsmlStreamBuffer.length > 0) {
-          const parsed = parseDSML(dsmlStreamBuffer);
-          if (parsed && parsed.toolCalls && parsed.toolCalls.length > 0) {
-            if (parsed.contentBefore) {
-              await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "TEXT", parsed.contentBefore);
-            }
-            const tcChunk = {
-              id: completionId,
-              object: "chat.completion.chunk",
-              created: createdTimestamp,
-              model: model,
-              choices: [
-                {
-                  index: 0,
-                  delta: { role: "assistant", tool_calls: parsed.toolCalls },
-                  finish_reason: "tool_calls",
+        const dsml = parseDSML(accumulatedResponseText);
+        if (dsml && dsml.toolCalls.length > 0) {
+          const toolChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: createdTimestamp,
+            model: model,
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  tool_calls: dsml.toolCalls,
                 },
-              ],
-            };
-            await writer.write(encoder.encode(`data: ${JSON.stringify(tcChunk)}\n\n`));
-          } else {
-            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "TEXT", dsmlStreamBuffer);
+                finish_reason: "tool_calls",
+              },
+            ],
+          };
+          await writer.write(encoder.encode(`data: ${JSON.stringify(toolChunk)}\n\n`));
+        } else {
+          if (accumulatedResponseText.includes("<|") || accumulatedResponseText.includes("<｜")) {
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", accumulatedResponseText);
           }
+
+          const finishChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: createdTimestamp,
+            model: model,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          };
+          await writer.write(encoder.encode(`data: ${JSON.stringify(finishChunk)}\n\n`));
         }
 
         await writer.write(encoder.encode("data: [DONE]\n\n"));
+      } catch (streamErr) {
+        console.error("Stream processing error:", streamErr);
       } finally {
         await writer.close();
       }
@@ -367,29 +428,48 @@ async function handleChatCompletion(body, env) {
     });
   }
 
-  // Non-streaming
-  const fullText = await dsResponse.text();
-  const lines = fullText.split("\n");
-  let responseAccumulated = "";
+  // Non-streaming Response
+  const reader = dsResponse.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
   let thinkAccumulated = "";
+  let responseAccumulated = "";
+  let currentFragmentType = thinkingEnabled ? "THINK" : "RESPONSE";
 
-  for (const line of lines) {
-    if (!line.startsWith("data: ")) continue;
-    const jsonStr = line.substring(6).trim();
-    if (!jsonStr) continue;
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
 
-    try {
-      const chunk = JSON.parse(jsonStr);
-      const choices = chunk.choices || [];
-      if (choices.length === 0) continue;
-      const delta = choices[0].delta || {};
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop();
 
-      if (delta.type === "thinking" && delta.content) {
-        thinkAccumulated += delta.content;
-      } else if (delta.type === "text" && delta.content) {
-        responseAccumulated += delta.content;
+    for (const line of lines) {
+      if (line.startsWith("data:")) {
+        const dataStr = line.substring(5).trim();
+        if (!dataStr) continue;
+
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
+            currentFragmentType = data.v.response.fragments[0].type || "THINK";
+            const initC = data.v.response.fragments[0].content || "";
+            if (currentFragmentType === "THINK") thinkAccumulated += initC;
+            else responseAccumulated += initC;
+          }
+          if (data.p === "response/fragments" && data.o === "APPEND" && Array.isArray(data.v) && data.v.length > 0) {
+            currentFragmentType = data.v[0].type || "RESPONSE";
+            const appendC = data.v[0].content || "";
+            if (currentFragmentType === "THINK") thinkAccumulated += appendC;
+            else responseAccumulated += appendC;
+          }
+          if (data.v && typeof data.v === "string" && (!data.p || !data.p.includes("status"))) {
+            if (currentFragmentType === "THINK") thinkAccumulated += data.v;
+            else responseAccumulated += data.v;
+          }
+        } catch (e) {}
       }
-    } catch (e) {}
+    }
   }
 
   const dsml = parseDSML(responseAccumulated);
@@ -451,17 +531,18 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 }
 
 // -----------------------------------------------------------------------------
-// MINIMALIST, WHITE-THEMED, 1-STEP-AT-A-TIME SETUP GUIDE (BLACK & WHITE ONLY)
+// 100% NON-TECHY FRIENDLY, WHITE-THEMED, BLACK & WHITE SETUP PAGE (ZERO CODING)
 // -----------------------------------------------------------------------------
-function renderSetupHtml() {
-  const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{t=JSON.parse(raw).value||raw;}catch(e){t=raw;}}if(!t)return alert('No active DeepSeek session found! Please log in on chat.deepseek.com first.');if(!t.startsWith('Bearer '))t='Bearer '+t;navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek Token to clipboard!\\nNow return to the setup guide and paste in Step 1.');}catch(e){alert('Error copying token: '+e);}})();`;
+function renderSetupHtml(origin) {
+  const baseUrl = `${origin}/v1`;
+  const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{t=JSON.parse(raw).value||raw;}catch(e){t=raw;}}if(!t)return alert('No active DeepSeek session found! Please log in on chat.deepseek.com first.');if(!t.startsWith('Bearer '))t='Bearer '+t;navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek Token to clipboard!\\nNow paste it in Cursor as your API Key.');}catch(e){alert('Error copying token: '+e);}})();`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeepSeek Private Proxy Setup</title>
+  <title>DeepSeek Free OpenAI Proxy</title>
   <style>
     :root {
       --bg: #ffffff;
@@ -473,7 +554,7 @@ function renderSetupHtml() {
       --text-subtle: #888888;
       --code-bg: #f9f9f9;
       --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -518,67 +599,6 @@ function renderSetupHtml() {
       font-size: 14px;
       color: var(--text-muted);
     }
-    /* Stepper Navigation */
-    .stepper {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 32px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border);
-    }
-    .step-item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      cursor: pointer;
-    }
-    .step-num {
-      width: 24px;
-      height: 24px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 12px;
-      font-weight: 600;
-      background: #f0f0f0;
-      color: var(--text-subtle);
-      border: 1px solid var(--border);
-      transition: all 0.15s ease;
-    }
-    .step-item.active .step-num {
-      background: #000000;
-      color: #ffffff;
-      border-color: #000000;
-    }
-    .step-item.completed .step-num {
-      background: #ffffff;
-      color: #000000;
-      border-color: #000000;
-    }
-    .step-name {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
-    .step-item.active .step-name {
-      color: var(--text);
-      font-weight: 600;
-    }
-    .step-divider {
-      flex: 1;
-      height: 1px;
-      background: var(--border);
-      margin: 0 12px;
-    }
-    /* Step Panels (Only 1 active at a time) */
-    .step-panel {
-      display: none;
-    }
-    .step-panel.active {
-      display: block;
-    }
     .card {
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -587,21 +607,36 @@ function renderSetupHtml() {
       margin-bottom: 24px;
     }
     .card-title {
-      font-size: 18px;
+      font-size: 17px;
       font-weight: 700;
       margin-bottom: 8px;
       color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-badge {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #000000;
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
     }
     .card-desc {
       font-size: 13.5px;
       color: var(--text-muted);
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
     /* Bookmarklet */
     .bookmarklet-box {
       border: 1px dashed var(--border-dark);
       border-radius: 6px;
-      padding: 18px;
+      padding: 16px;
       margin: 16px 0;
       background: #fafafa;
     }
@@ -628,92 +663,38 @@ function renderSetupHtml() {
     .instructions-list li {
       margin-bottom: 6px;
     }
-    /* Inputs */
-    label {
-      display: block;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-    .input-field {
-      width: 100%;
-      padding: 10px 12px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: #ffffff;
-      color: var(--text);
-      outline: none;
-      transition: border-color 0.15s;
-    }
-    .input-field:focus {
-      border-color: #000000;
-    }
-    .status-msg {
-      font-size: 12.5px;
-      margin-top: 8px;
-      display: none;
-    }
-    .status-msg.valid {
-      color: #000000;
-      font-weight: 600;
-      display: block;
-    }
-    /* Action Buttons */
-    .button-row {
+    /* Copy Row */
+    .copy-row {
       display: flex;
-      justify-content: space-between;
       align-items: center;
-      margin-top: 24px;
-    }
-    .btn {
-      padding: 10px 20px;
-      font-size: 13.5px;
-      font-weight: 600;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s;
-      border: 1px solid transparent;
-      text-decoration: none;
-      display: inline-block;
-    }
-    .btn-primary {
-      background: #000000;
-      color: #ffffff;
-      border-color: #000000;
-    }
-    .btn-primary:hover {
-      background: #262626;
-    }
-    .btn-secondary {
-      background: #ffffff;
-      color: var(--text);
-      border-color: var(--border);
-    }
-    .btn-secondary:hover {
-      background: #f5f5f5;
-    }
-    /* Code Blocks */
-    pre {
+      justify-content: space-between;
       background: var(--code-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 12px 14px;
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      color: var(--text);
-      overflow-x: auto;
+      padding: 10px 14px;
       margin: 10px 0;
-      line-height: 1.45;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+    .btn-copy {
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #000000;
+      color: #ffffff;
+      border: 1px solid #000000;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-copy:hover {
+      background: #262626;
     }
     /* Tabs */
     .tabs {
       display: flex;
       gap: 6px;
       border-bottom: 1px solid var(--border);
-      margin-bottom: 14px;
+      margin: 16px 0 12px 0;
     }
     .tab-item {
       padding: 6px 12px;
@@ -735,31 +716,17 @@ function renderSetupHtml() {
     .tab-content.active {
       display: block;
     }
-    /* Copy Row */
-    .copy-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+    pre {
       background: var(--code-bg);
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 8px 12px;
-      margin: 8px 0;
+      padding: 12px 14px;
       font-family: var(--font-mono);
       font-size: 12.5px;
-    }
-    .btn-copy {
-      padding: 4px 10px;
-      font-size: 11.5px;
-      font-weight: 500;
-      background: #ffffff;
-      color: #000000;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    .btn-copy:hover {
-      background: #f0f0f0;
+      color: var(--text);
+      overflow-x: auto;
+      margin: 10px 0;
+      line-height: 1.45;
     }
     .note-box {
       border-left: 2px solid #000000;
@@ -768,187 +735,103 @@ function renderSetupHtml() {
       font-size: 12.5px;
       color: var(--text-muted);
     }
+    details summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      padding: 8px 0;
+    }
   </style>
 </head>
 <body>
   <div class="container">
     
     <div class="header">
-      <div class="badge">Open Source Setup</div>
-      <h1>DeepSeek Private Proxy</h1>
-      <p class="subtitle">Deploy your own dedicated, 100% free OpenAI-compatible proxy for DeepSeek R1 & V3 in 3 simple steps.</p>
+      <div class="badge">Zero-Config Free Proxy</div>
+      <h1>DeepSeek OpenAI Proxy</h1>
+      <p class="subtitle">Connect DeepSeek R1 & V3 directly into Cursor, VS Code, or Cline in 30 seconds. No coding, no terminal, and no payment required.</p>
     </div>
 
-    <!-- Stepper Header -->
-    <div class="stepper">
-      <div class="step-item active" id="indicator-1" onclick="goToStep(1)">
-        <span class="step-num">1</span>
-        <span class="step-name">Get Token</span>
+    <!-- STEP 1: Grab Token -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-badge">1</span>
+        <span>Get Your DeepSeek Token (1 Click)</span>
       </div>
-      <div class="step-divider"></div>
-      <div class="step-item" id="indicator-2" onclick="goToStep(2)">
-        <span class="step-num">2</span>
-        <span class="step-name">Deploy Worker</span>
-      </div>
-      <div class="step-divider"></div>
-      <div class="step-item" id="indicator-3" onclick="goToStep(3)">
-        <span class="step-num">3</span>
-        <span class="step-name">Connect IDE</span>
-      </div>
-    </div>
+      <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this button to your browser bookmarks bar to extract your free token:</p>
 
-    <!-- STEP 1 PANEL -->
-    <div class="step-panel active" id="panel-1">
-      <div class="card">
-        <div class="card-title">Step 1: Grab Your DeepSeek Token</div>
-        <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this bookmarklet to your browser bookmarks bar to extract your session token in 1 click.</p>
-
-        <div class="bookmarklet-box">
-          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="alert('Drag this button to your browser Bookmarks Bar, then click it on chat.deepseek.com'); return false;">
-            ⭐ DeepSeek Token Grabber
-          </a>
-          <ol class="instructions-list">
-            <li>Drag the black button above to your browser Bookmarks Bar.</li>
-            <li>Open <a href="https://chat.deepseek.com" target="_blank" style="color: #000000;">chat.deepseek.com</a> in your browser and log in.</li>
-            <li>Click the bookmark on the page. Your credentials JSON is automatically copied to your clipboard.</li>
-          </ol>
-        </div>
-
-        <label for="input-token">Paste Copied DeepSeek Token</label>
-        <input type="text" id="input-token" class="input-field" placeholder='Bearer koeKUj... (or paste JSON)' oninput="onTokenPasted()">
-        <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Note: Only your Bearer token is needed. DeepSeek does not require ds_session_id or aws_waf_token.</p>
-        <div id="token-status" class="status-msg"></div>
-
-        <div class="button-row">
-          <div></div>
-          <button class="btn btn-primary" onclick="proceedToStep2()">Continue to Step 2 &rarr;</button>
-        </div>
+      <div class="bookmarklet-box">
+        <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="alert('Drag this button to your browser Bookmarks Bar, then click it on chat.deepseek.com'); return false;">
+          ⭐ DeepSeek Token Grabber
+        </a>
+        <ol class="instructions-list">
+          <li>Drag the black button above to your browser's Bookmarks bar.</li>
+          <li>Open <a href="https://chat.deepseek.com" target="_blank" style="color: #000000; font-weight: 600;">chat.deepseek.com</a> in your browser and log in.</li>
+          <li>Click the bookmark on the page. Your token is automatically copied to your clipboard!</li>
+        </ol>
       </div>
     </div>
 
-    <!-- STEP 2 PANEL -->
-    <div class="step-panel" id="panel-2">
-      <div class="card">
-        <div class="card-title">Step 2: Deploy Your Own Free Cloudflare Worker</div>
-        <p class="card-desc">
-          To protect your privacy and guarantee your requests never share rate limits with anyone else, you host your proxy on your own free Cloudflare account. Cloudflare provides 100,000 requests per day for free.
-        </p>
+    <!-- STEP 2: Paste into IDE -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-badge">2</span>
+        <span>Paste Settings into Cursor / VS Code</span>
+      </div>
+      <p class="card-desc">Open your IDE settings and enter these 3 values. You're done!</p>
 
-        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 8px;">Run these 3 commands in your terminal to deploy your dedicated proxy in under 60 seconds:</p>
-        <pre><code># 1. Clone this open-source proxy
-git clone https://github.com/divyansh-shandilya/deepseek-openai-proxy.git
-cd deepseek-openai-proxy
-
-# 2. Login to your free Cloudflare account
-npx wrangler login
-
-# 3. Deploy in 1 command
-npx wrangler deploy</code></pre>
-
-        <div class="note-box" style="margin: 10px 0;">
-          <strong>Tip for GitHub Codespaces / Remote Terminals:</strong> If running in Codespaces, browser OAuth redirect to <code>localhost</code> may not reach the cloud VM. You can either forward port <code>8976</code> in the PORTS tab, or use an API token:<br>
-          <code>export CLOUDFLARE_API_TOKEN="your_token"</code> then run <code>npx wrangler deploy</code>.
-        </div>
-
-        <p style="font-size: 13px; color: var(--text-muted); margin-top: 14px; margin-bottom: 6px;">Your pre-configured <code>wrangler.toml</code> with your token from Step 1:</p>
+      <div>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. OpenAI Base URL</label>
         <div class="copy-row">
-          <span style="font-size: 12px; color: var(--text-muted);">wrangler.toml configuration</span>
-          <button class="btn-copy" onclick="copyWranglerToml()">Copy Config</button>
-        </div>
-        <pre id="wrangler-preview"><code>name = "my-deepseek-proxy"
-main = "src/index.js"
-compatibility_date = "2024-04-01"
-
-[[rules]]
-type = "CompiledWasm"
-globs = ["**/*.wasm"]
-fallthrough = false
-
-[vars]
-DEEPSEEK_AUTH_TOKEN = "Paste your token from Step 1"</code></pre>
-
-        <div style="margin-top: 24px;">
-          <label for="input-worker-url">Enter Your Deployed Worker URL</label>
-          <input type="text" id="input-worker-url" class="input-field" placeholder="https://my-deepseek-proxy.your-name.workers.dev" oninput="saveWorkerUrl()">
-          <div class="note-box">Wrangler will output your URL in your terminal immediately after deployment. Paste it above to generate your IDE setup guide in Step 3.</div>
-        </div>
-
-        <div class="button-row">
-          <button class="btn btn-secondary" onclick="goToStep(1)">&larr; Back</button>
-          <button class="btn btn-primary" onclick="proceedToStep3()">Continue to Step 3 &rarr;</button>
+          <span id="base-url-text">${baseUrl}</span>
+          <button class="btn-copy" onclick="copyText('base-url-text')">Copy URL</button>
         </div>
       </div>
-    </div>
 
-    <!-- STEP 3 PANEL -->
-    <div class="step-panel" id="panel-3">
-      <div class="card">
-        <div class="card-title">Step 3: Connect to Your IDE</div>
-        <p class="card-desc">Your dedicated proxy is ready. Copy these values into Cursor, VS Code, Cline, or any OpenAI-compatible application.</p>
-
-        <div style="margin-bottom: 20px;">
-          <div class="copy-row">
-            <div>
-              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px;">OpenAI Base URL</div>
-              <span id="final-base-url">https://your-worker.workers.dev/v1</span>
-            </div>
-            <button class="btn-copy" onclick="copyText('final-base-url')">Copy URL</button>
-          </div>
-
-          <div class="copy-row">
-            <div>
-              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px;">API Key</div>
-              <span>sk-dummy</span>
-            </div>
-            <button class="btn-copy" onclick="navigator.clipboard.writeText('sk-dummy'); alert('Copied API Key: sk-dummy');">Copy Key</button>
-          </div>
-
-          <div class="copy-row">
-            <div>
-              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 2px;">Default Model</div>
-              <span>deepseek-reasoner</span>
-            </div>
-            <button class="btn-copy" onclick="navigator.clipboard.writeText('deepseek-reasoner'); alert('Copied Model: deepseek-reasoner');">Copy Model</button>
-          </div>
+      <div style="margin-top: 14px;">
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. OpenAI API Key</label>
+        <div class="copy-row">
+          <span style="color: var(--text-muted);">Paste the token you copied in Step 1 (starts with Bearer...)</span>
         </div>
+      </div>
 
-        <div class="tabs">
-          <div class="tab-item active" onclick="switchIdeTab('cursor')">Cursor</div>
-          <div class="tab-item" onclick="switchIdeTab('vscode')">VS Code / Cline</div>
-          <div class="tab-item" onclick="switchIdeTab('dsh')">DeepSeek CLI (dsh)</div>
-          <div class="tab-item" onclick="switchIdeTab('python')">Python SDK</div>
+      <div style="margin-top: 14px;">
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">3. Model Name</label>
+        <div class="copy-row">
+          <span id="model-name-text">deepseek-reasoner</span>
+          <button class="btn-copy" onclick="copyText('model-name-text')">Copy Model</button>
         </div>
+      </div>
 
-        <div id="tab-ide-cursor" class="tab-content active">
-          <pre><code id="snippet-cursor">1. Open Cursor Settings -> Models -> OpenAI.
-2. Set API Key to: sk-dummy
-3. Enable "Override OpenAI Base URL" and enter:
-   https://your-worker.workers.dev/v1
+      <div class="tabs">
+        <div class="tab-item active" onclick="switchIdeTab('cursor')">Cursor Instructions</div>
+        <div class="tab-item" onclick="switchIdeTab('vscode')">VS Code / Cline Instructions</div>
+        <div class="tab-item" onclick="switchIdeTab('python')">Python SDK</div>
+      </div>
+
+      <div id="tab-ide-cursor" class="tab-content active">
+        <pre><code>1. Open Cursor Settings -> Models -> OpenAI.
+2. Toggle "Override OpenAI Base URL" and enter:
+   ${baseUrl}
+3. Set API Key to: Paste your token from Step 1
 4. Add Model: deepseek-reasoner (or deepseek-chat)</code></pre>
-        </div>
+      </div>
 
-        <div id="tab-ide-vscode" class="tab-content">
-          <pre><code id="snippet-vscode">In Cline / Continue / Roo Code settings:
+      <div id="tab-ide-vscode" class="tab-content">
+        <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
-Base URL: https://your-worker.workers.dev/v1
-API Key: dummy
+Base URL: ${baseUrl}
+API Key: Paste your token from Step 1
 Model ID: deepseek-reasoner</code></pre>
-        </div>
+      </div>
 
-        <div id="tab-ide-dsh" class="tab-content">
-          <pre><code id="snippet-dsh">export OPENAI_BASE_URL="https://your-worker.workers.dev/v1"
-export OPENAI_API_KEY="dummy"
-
-# Run DeepSeek Harness with full command execution & tool support
-dsh</code></pre>
-        </div>
-
-        <div id="tab-ide-python" class="tab-content">
-          <pre><code id="snippet-python">from openai import OpenAI
+      <div id="tab-ide-python" class="tab-content">
+        <pre><code>from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://your-worker.workers.dev/v1",
-    api_key="dummy"
+    base_url="${baseUrl}",
+    api_key="PASTE_YOUR_DEEPSEEK_TOKEN_HERE"
 )
 
 response = client.chat.completions.create(
@@ -958,157 +841,40 @@ response = client.chat.completions.create(
 )
 for chunk in response:
     print(chunk.choices[0].delta.content or "", end="")</code></pre>
-        </div>
-
-        <div class="button-row">
-          <button class="btn btn-secondary" onclick="goToStep(2)">&larr; Back to Step 2</button>
-          <button class="btn btn-primary" onclick="goToStep(1)">Done / Start Over &rarr;</button>
-        </div>
       </div>
+    </div>
+
+    <!-- Optional Section for Developers -->
+    <div class="card">
+      <details>
+        <summary>⚙️ Want to host your own dedicated worker? (For Developers Only)</summary>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 10px 0;">
+          If you are a developer and want to deploy this proxy on your own Cloudflare account:
+        </p>
+        <pre><code>git clone https://github.com/divyansh-shandilya/deepseek-openai-proxy.git
+cd deepseek-openai-proxy
+npx wrangler login
+npx wrangler deploy</code></pre>
+        <p style="font-size: 12.5px; color: var(--text-muted);">
+          View open-source repository on <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" style="color: #000000; font-weight: 600;">GitHub</a>.
+        </p>
+      </details>
     </div>
 
   </div>
 
   <script>
-    let currentStep = 1;
-    let userToken = "";
-    let userWaf = "";
-    let userSess = "";
-    let userWorkerUrl = "https://your-worker.workers.dev";
-
-    function goToStep(step) {
-      currentStep = step;
-      document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
-      const activePanel = document.getElementById('panel-' + step);
-      if (activePanel) activePanel.classList.add('active');
-
-      // Update Stepper
-      for (let i = 1; i <= 3; i++) {
-        const ind = document.getElementById('indicator-' + i);
-        if (!ind) continue;
-        ind.classList.remove('active', 'completed');
-        if (i === step) ind.classList.add('active');
-        else if (i < step) ind.classList.add('completed');
-      }
-
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-
-    function onTokenPasted() {
-      const input = document.getElementById('input-token').value.trim();
-      const status = document.getElementById('token-status');
-      if (!input) {
-        status.style.display = 'none';
-        return;
-      }
-
-      try {
-        let token = input;
-        if (input.startsWith('{')) {
-          const parsed = JSON.parse(input);
-          token = parsed.token || input;
-        }
-        if (!token.startsWith('Bearer ') && token.length > 20) {
-          token = 'Bearer ' + token;
-        }
-        userToken = token;
-
-        status.textContent = '✓ Valid Token: ' + userToken.substring(0, 32) + '...';
-        status.className = 'status-msg valid';
-        updateWranglerPreview();
-      } catch (e) {
-        status.textContent = 'Invalid format. Please copy using the bookmarklet on chat.deepseek.com';
-        status.className = 'status-msg error';
-      }
-    }
-
-    function proceedToStep2() {
-      const input = document.getElementById('input-token').value.trim();
-      if (!input) {
-        alert('Please paste your DeepSeek token before continuing.');
-        return;
-      }
-      onTokenPasted();
-      goToStep(2);
-    }
-
-    function updateWranglerPreview() {
-      const el = document.getElementById('wrangler-preview');
-      if (!el) return;
-      const t = userToken || "Bearer your-token-from-step-1";
-      el.innerHTML = '<code>name = "my-deepseek-proxy"\\nmain = "src/index.js"\\ncompatibility_date = "2024-04-01"\\n\\n[[rules]]\\ntype = "CompiledWasm"\\nglobs = ["**/*.wasm"]\\nfallthrough = false\\n\\n[vars]\\nDEEPSEEK_AUTH_TOKEN = "' + t + '"</code>';
-    }
-
-    function copyWranglerToml() {
-      const t = userToken || "Bearer your-token-from-step-1";
-      const config = 'name = "my-deepseek-proxy"\\nmain = "src/index.js"\\ncompatibility_date = "2024-04-01"\\n\\n[[rules]]\\ntype = "CompiledWasm"\\nglobs = ["**/*.wasm"]\\nfallthrough = false\\n\\n[vars]\\nDEEPSEEK_AUTH_TOKEN = "' + t + '"\\n';
-      navigator.clipboard.writeText(config);
-      alert('Copied wrangler.toml config to clipboard!');
-    }
-
-    function saveWorkerUrl() {
-      let raw = document.getElementById('input-worker-url').value.trim();
-      if (!raw) raw = "https://your-worker.workers.dev";
-      raw = raw.replace(/\\/v1\\/?$/, '').replace(/\\/$/, '');
-      userWorkerUrl = raw;
-      updateStep3Snippets();
-    }
-
-    function proceedToStep3() {
-      saveWorkerUrl();
-      goToStep(3);
-    }
-
-    function updateStep3Snippets() {
-      const base = userWorkerUrl + '/v1';
-      document.getElementById('final-base-url').textContent = base;
-
-      document.getElementById('snippet-cursor').textContent =
-        '1. Open Cursor Settings -> Models -> OpenAI.\\n' +
-        '2. Set API Key to: sk-dummy\\n' +
-        '3. Enable "Override OpenAI Base URL" and enter:\\n' +
-        '   ' + base + '\\n' +
-        '4. Add Model: deepseek-reasoner (or deepseek-chat)';
-
-      document.getElementById('snippet-vscode').textContent =
-        'In Cline / Continue / Roo Code settings:\\n' +
-        'Provider: OpenAI Compatible\\n' +
-        'Base URL: ' + base + '\\n' +
-        'API Key: dummy\\n' +
-        'Model ID: deepseek-reasoner';
-
-      document.getElementById('snippet-dsh').textContent =
-        'export OPENAI_BASE_URL="' + base + '"\\n' +
-        'export OPENAI_API_KEY="dummy"\\n\\n' +
-        '# Run DeepSeek Harness with full command execution & tool support\\n' +
-        'dsh';
-
-      document.getElementById('snippet-python').textContent =
-        'from openai import OpenAI\\n\\n' +
-        'client = OpenAI(\\n' +
-        '    base_url="' + base + '",\\n' +
-        '    api_key="dummy"\\n' +
-        ')\\n\\n' +
-        'response = client.chat.completions.create(\\n' +
-        '    model="deepseek-reasoner",\\n' +
-        '    messages=[{"role": "user", "content": "Hello!"}],\\n' +
-        '    stream=True\\n' +
-        ')\\n' +
-        'for chunk in response:\\n' +
-        '    print(chunk.choices[0].delta.content or "", end="")';
-    }
-
-    function switchIdeTab(ide) {
-      document.querySelectorAll('#panel-3 .tabs .tab-item').forEach(t => t.classList.remove('active'));
-      event.target.classList.add('active');
-      document.querySelectorAll('#panel-3 .tab-content').forEach(c => c.classList.remove('active'));
-      document.getElementById('tab-ide-' + ide).classList.add('active');
-    }
-
     function copyText(elemId) {
       const text = document.getElementById(elemId).textContent;
       navigator.clipboard.writeText(text);
-      alert('Copied: ' + text);
+      alert('Copied to clipboard: ' + text);
+    }
+
+    function switchIdeTab(ide) {
+      document.querySelectorAll('.tabs .tab-item').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      document.getElementById('tab-ide-' + ide).classList.add('active');
     }
   </script>
 </body>
