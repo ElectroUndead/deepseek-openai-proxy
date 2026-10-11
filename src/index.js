@@ -47,23 +47,27 @@ function parseDSML(text) {
   if (!text) return null;
   const norm = text.replace(/｜/g, "|");
 
-  const callsMatch = norm.match(/<\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>|$)/i);
-  if (!callsMatch) return null;
+  // Check if there are any invoke blocks: <|...DSML...| invoke name="...">
+  const firstInvokeMatch = norm.match(/<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>/i);
+  if (!firstInvokeMatch) {
+    return null;
+  }
 
-  const contentBefore = norm.substring(0, callsMatch.index).trim();
-  const inner = callsMatch[1];
+  // Find where the DSML content starts (could be <|DSML| calls> or directly <|DSML| invoke>)
+  const firstTagMatch = norm.match(/<\|+DSML\|+\s*(?:calls|tool_calls|invoke)[^>]*>/i);
+  const contentBefore = firstTagMatch ? norm.substring(0, firstTagMatch.index).trim() : "";
 
   const toolCalls = [];
-  const invokeRegex = /<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*invoke[^>]*>|$)/gi;
+  const invokeRegex = /<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*invoke[^>]*>|(?=<\|+DSML\|+\s*invoke)|<\/\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>|$)/gi;
   let invMatch;
   let idx = 0;
 
-  while ((invMatch = invokeRegex.exec(inner)) !== null) {
+  while ((invMatch = invokeRegex.exec(norm)) !== null) {
     const name = invMatch[1];
     const paramsBlock = invMatch[2];
 
     const params = {};
-    const paramRegex = /<\|+DSML\|+\s*parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*parameter[^>]*>|$)/gi;
+    const paramRegex = /<\|+DSML\|+\s*parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*parameter[^>]*>|(?=<\|+DSML\|+\s*parameter)|<\/\|+DSML\|+\s*invoke[^>]*>|$)/gi;
     let pMatch;
     while ((pMatch = paramRegex.exec(paramsBlock)) !== null) {
       const pName = pMatch[1];
@@ -86,6 +90,7 @@ function parseDSML(text) {
     });
   }
 
+  if (toolCalls.length === 0) return null;
   return { contentBefore, toolCalls };
 }
 
