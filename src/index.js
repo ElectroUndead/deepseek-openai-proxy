@@ -709,6 +709,83 @@ function renderSetupHtml(origin) {
       margin-bottom: 20px;
     }
 
+    /* Mandatory GitHub Star Prerequisite */
+    .star-gate-card {
+      border: 1px solid #111111;
+      border-radius: 8px;
+      padding: 20px;
+      background: #fafafa;
+      margin-bottom: 20px;
+      transition: all 0.2s ease;
+    }
+    .star-gate-card.completed {
+      border-color: var(--border);
+      background: #ffffff;
+      padding: 14px 18px;
+    }
+    .star-gate-badge {
+      display: inline-block;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      padding: 2px 7px;
+      background: #000000;
+      color: #ffffff;
+      border-radius: 3px;
+    }
+    .star-gate-badge.completed-badge {
+      background: #ffffff;
+      color: #000000;
+      border: 1px solid #111111;
+    }
+    .star-gate-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .star-gate-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    .star-gate-warning {
+      background: #ffffff;
+      border: 1px solid #111111;
+      border-radius: 6px;
+      padding: 12px 14px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #000000;
+      margin-bottom: 16px;
+    }
+    .star-gate-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+    }
+    .locked-card {
+      opacity: 0.45;
+      pointer-events: none;
+      user-select: none;
+      filter: grayscale(1);
+      transition: opacity 0.25s ease, filter 0.25s ease;
+    }
+    .star-lock-notice {
+      text-align: center;
+      padding: 11px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #000000;
+      background: #f4f4f4;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 18px;
+    }
+
     /* Hero Action Card (Step 1) */
     .hero-action-card {
       border: 1px solid var(--border);
@@ -1039,15 +1116,51 @@ function renderSetupHtml(origin) {
 
     <!-- STEP 1: Add Bookmark -->
     <div id="step-panel-1" class="step-panel card">
+
+      <!-- Mandatory GitHub Star Prerequisite Card -->
+      <div id="star-gate-card" class="star-gate-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+          <span id="star-gate-badge" class="star-gate-badge">Mandatory Prerequisite</span>
+          <span id="star-gate-step-text" style="font-size: 11.5px; font-weight: 600; color: var(--text-muted);">Step 0 of 4</span>
+        </div>
+        <div class="star-gate-title">Star the Project on GitHub</div>
+        <p class="star-gate-desc">
+          This proxy is completely free and open-source. To keep it maintained and active, starring the project repository on GitHub is mandatory before you can unlock the Key Grabber.
+        </p>
+
+        <div class="star-gate-warning">
+          <strong>Important Instructions:</strong>
+          <div style="margin-top: 6px; line-height: 1.55;">
+            1. Click <strong>Star on GitHub</strong> below to open the repository in a new tab.<br>
+            2. On GitHub, click the <strong>Star</strong> button at the top right of the page.<br>
+            3. <strong>Do NOT download, clone, or install anything:</strong> You do NOT need to run any code on your computer. Everything runs entirely in the cloud.<br>
+            4. Return to this page and click <strong>I Have Starred the Repository</strong> to unlock setup.
+          </div>
+        </div>
+
+        <div class="star-gate-actions">
+          <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" class="btn-primary" onclick="markGithubStarOpened()">
+            Star on GitHub
+          </a>
+          <button id="btn-confirm-star" class="btn-secondary" onclick="confirmGithubStar()">
+            I Have Starred the Repository
+          </button>
+        </div>
+      </div>
+
+      <div id="star-lock-notice" class="star-lock-notice">
+        Locked: Star the GitHub repository above and click "I Have Starred the Repository" to unlock the Key Grabber below.
+      </div>
+
       <div class="card-title">
         <span class="step-badge">1</span>
         <span>Add Key Grabber to Bookmarks</span>
       </div>
       <p class="card-desc">Drag this button up to your browser's Bookmarks bar. This will let you grab your DeepSeek key in 1 click whenever you need it:</p>
 
-      <div class="hero-action-card">
+      <div id="bookmarklet-action-card" class="hero-action-card locked-card">
         <div class="hero-action-body">
-          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="if(!hasStarredRepo()){showToast('Please star the GitHub repository first to unlock setup.');return false;}showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
             <span>DeepSeek Key Grabber</span>
           </a>
           <div class="drag-hint">Click and drag this button up into your bookmarks bar</div>
@@ -1237,9 +1350,9 @@ for chunk in response:
     <!-- Optional Developer Section -->
     <div class="card">
       <details>
-        <summary>Want to host your own dedicated worker? (For Developers Only)</summary>
+        <summary>Want to host your own dedicated worker? (Developers Only)</summary>
         <p style="font-size: 13px; color: var(--text-muted); margin: 10px 0;">
-          If you are a developer and want to deploy this proxy on your own Cloudflare account:
+          Notice: Normal users do not need this. This proxy is already hosted and running for you online. Only use the commands below if you are a developer hosting your own private Cloudflare instance:
         </p>
         <pre><code>git clone https://github.com/divyansh-shandilya/deepseek-openai-proxy.git
 cd deepseek-openai-proxy
@@ -1318,7 +1431,57 @@ npx wrangler deploy</code></pre>
       });
     }
 
+    function hasStarredRepo() {
+      return localStorage.getItem('deepseek_proxy_has_starred') === 'true';
+    }
+
+    function markGithubStarOpened() {
+      showToast('Opening GitHub... Click Star at top right, then click I Have Starred below.');
+    }
+
+    function confirmGithubStar() {
+      localStorage.setItem('deepseek_proxy_has_starred', 'true');
+      applyStarUnlockState();
+      showToast('GitHub star confirmed! Setup is now unlocked.');
+    }
+
+    function applyStarUnlockState() {
+      const isStarred = hasStarredRepo();
+      const card = document.getElementById('star-gate-card');
+      const lockNotice = document.getElementById('star-lock-notice');
+      const bmCard = document.getElementById('bookmarklet-action-card');
+
+      if (isStarred) {
+        if (lockNotice) lockNotice.style.display = 'none';
+        if (bmCard) bmCard.classList.remove('locked-card');
+        if (card) {
+          card.classList.add('completed');
+          card.innerHTML = \`
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="star-gate-badge completed-badge">Completed</span>
+                <span style="font-size: 13px; font-weight: 600; color: #000000;">GitHub Repository Starred</span>
+              </div>
+              <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" style="font-size: 12px; color: #666666; text-decoration: underline;">
+                View on GitHub
+              </a>
+            </div>
+          \`;
+        }
+      } else {
+        if (lockNotice) lockNotice.style.display = 'block';
+        if (bmCard) bmCard.classList.add('locked-card');
+      }
+    }
+
     function goToStep(step) {
+      if (step > 1 && !hasStarredRepo()) {
+        showToast('Please star the GitHub repository first to continue.');
+        const card = document.getElementById('star-gate-card');
+        if (card) card.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+
       currentStep = step;
       document.querySelectorAll('.step-panel').forEach(p => p.style.display = 'none');
       const panel = document.getElementById('step-panel-' + step);
@@ -1437,6 +1600,8 @@ npx wrangler deploy</code></pre>
         btn.textContent = 'Verify Key';
       }
     }
+
+    applyStarUnlockState();
   </script>
 </body>
 </html>`;
