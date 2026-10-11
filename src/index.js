@@ -584,7 +584,7 @@ function renderSetupHtml(origin) {
       max-width: 680px;
     }
     .header {
-      margin-bottom: 28px;
+      margin-bottom: 24px;
       text-align: left;
     }
     .badge {
@@ -628,24 +628,25 @@ function renderSetupHtml(origin) {
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      padding: 10px 12px;
+      gap: 6px;
+      padding: 9px 8px;
       background: transparent;
       border: 1px solid transparent;
       border-radius: 6px;
-      font-size: 13px;
+      font-size: 12.5px;
       font-weight: 600;
       color: var(--text-muted);
       cursor: pointer;
       transition: all 0.15s ease;
+      white-space: nowrap;
     }
     .step-nav-btn.active {
       background: #000000;
       color: #ffffff;
     }
     .step-circle {
-      width: 20px;
-      height: 20px;
+      width: 18px;
+      height: 18px;
       border-radius: 50%;
       background: #e5e5e5;
       color: #000000;
@@ -654,15 +655,25 @@ function renderSetupHtml(origin) {
       justify-content: center;
       font-size: 11px;
       font-weight: 700;
+      flex-shrink: 0;
     }
     .step-nav-btn.active .step-circle {
       background: #ffffff;
       color: #000000;
     }
     .step-line {
-      width: 14px;
+      width: 8px;
       height: 1px;
       background: var(--border);
+      flex-shrink: 0;
+    }
+    @media (max-width: 580px) {
+      .step-nav-text {
+        display: none;
+      }
+      .step-nav-btn {
+        padding: 8px 4px;
+      }
     }
 
     .card {
@@ -699,47 +710,81 @@ function renderSetupHtml(origin) {
       margin-bottom: 20px;
     }
 
-    /* Bookmarklet */
+    /* Bookmarklet Box */
     .bookmarklet-box {
       border: 1px dashed var(--border-dark);
       border-radius: 6px;
-      padding: 18px;
+      padding: 20px;
       margin: 16px 0;
       background: #fafafa;
+      text-align: center;
     }
     .bookmarklet-btn {
       display: inline-block;
       background: #000000;
       color: #ffffff;
       text-decoration: none;
-      padding: 10px 20px;
+      padding: 11px 22px;
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 13.5px;
       font-weight: 600;
       cursor: grab;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
     .bookmarklet-btn:hover {
       background: #262626;
     }
-    .instructions-list {
-      font-size: 13px;
+    .drag-hint {
+      font-size: 12.5px;
       color: var(--text-muted);
-      padding-left: 20px;
-      line-height: 1.6;
-    }
-    .instructions-list li {
-      margin-bottom: 8px;
+      margin-top: 6px;
     }
     .tip-box {
       background: #fafafa;
       border: 1px solid var(--border);
       border-radius: 6px;
-      padding: 10px 14px;
+      padding: 12px 14px;
       margin-top: 14px;
       font-size: 12.5px;
       color: var(--text);
       line-height: 1.45;
+      text-align: left;
+    }
+    .callout-box {
+      border: 1px solid #111111;
+      background: #fafafa;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Instruction steps list */
+    .guide-step {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 16px;
+      align-items: flex-start;
+    }
+    .guide-num {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #111111;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .guide-body {
+      flex: 1;
+      font-size: 13.5px;
+      line-height: 1.5;
     }
 
     /* Copy Rows */
@@ -800,7 +845,7 @@ function renderSetupHtml(origin) {
       border-radius: 3px;
     }
 
-    /* Wizard Action Navigation */
+    /* Action Buttons */
     .wizard-nav {
       display: flex;
       align-items: center;
@@ -818,6 +863,10 @@ function renderSetupHtml(origin) {
       border: 1px solid #000000;
       border-radius: 4px;
       cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
     }
     .btn-primary:hover {
       background: #262626;
@@ -831,6 +880,7 @@ function renderSetupHtml(origin) {
       border: 1px solid #111111;
       border-radius: 4px;
       cursor: pointer;
+      text-decoration: none;
     }
     .btn-secondary:hover {
       background: #f5f5f5;
@@ -894,6 +944,31 @@ function renderSetupHtml(origin) {
       color: var(--text);
       padding: 8px 0;
     }
+
+    /* Modern Toast */
+    .toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: #000000;
+      color: #ffffff;
+      padding: 11px 20px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      z-index: 9999;
+      white-space: nowrap;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+      pointer-events: auto;
+    }
   </style>
 </head>
 <body>
@@ -908,35 +983,35 @@ function renderSetupHtml(origin) {
     <!-- Stepper Header -->
     <div class="stepper-nav">
       <button class="step-nav-btn active" id="nav-step-1" onclick="goToStep(1)">
-        <span class="step-circle">1</span> Get API Key
+        <span class="step-circle">1</span> <span class="step-nav-text">Add Bookmark</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-2" onclick="goToStep(2)">
-        <span class="step-circle">2</span> Verify Key
+        <span class="step-circle">2</span> <span class="step-nav-text">Get Key</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-3" onclick="goToStep(3)">
-        <span class="step-circle">3</span> Connect to App
+        <span class="step-circle">3</span> <span class="step-nav-text">Verify Key</span>
+      </button>
+      <div class="step-line"></div>
+      <button class="step-nav-btn" id="nav-step-4" onclick="goToStep(4)">
+        <span class="step-circle">4</span> <span class="step-nav-text">Connect App</span>
       </button>
     </div>
 
-    <!-- STEP 1: Grab Token Panel -->
+    <!-- STEP 1: Add Bookmark -->
     <div id="step-panel-1" class="step-panel card">
       <div class="card-title">
         <span class="step-badge">1</span>
-        <span>Get Your DeepSeek API Key</span>
+        <span>Add the Key Grabber to Your Browser</span>
       </div>
-      <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this button to your browser bookmarks bar to extract your free key in 1 click (no "Bearer" prefix):</p>
+      <p class="card-desc">Drag this button to your browser's Bookmarks bar. This will let you grab your DeepSeek key in 1 click from your browser:</p>
 
       <div class="bookmarklet-box">
-        <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="alert('Drag this button to your browser Bookmarks Bar, then click it on chat.deepseek.com'); return false;">
+        <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('💡 Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
           ⭐ DeepSeek Key Grabber
         </a>
-        <ol class="instructions-list">
-          <li>Drag the black button above to your browser's Bookmarks bar.</li>
-          <li>Open <a href="https://chat.deepseek.com" target="_blank" style="color: #000000; font-weight: 600;">chat.deepseek.com</a> in your browser and log in.</li>
-          <li>Click the bookmark on the page. Your clean API key is automatically copied to your clipboard!</li>
-        </ol>
+        <div class="drag-hint">↑ Click and drag the black button directly into your browser's bookmarks bar</div>
 
         <div class="tip-box">
           💡 <strong>Don't see your bookmarks bar?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to show it.
@@ -945,23 +1020,68 @@ function renderSetupHtml(origin) {
 
       <div class="wizard-nav">
         <div></div>
-        <div style="display: flex; gap: 14px; align-items: center;">
-          <button class="btn-text" onclick="goToStep(3)">Skip to App Setup →</button>
-          <button class="btn-primary" onclick="goToStep(2)">Next: Verify Key →</button>
+        <button class="btn-primary" onclick="goToStep(2)">Next: Get Key from DeepSeek →</button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Get Key from DeepSeek -->
+    <div id="step-panel-2" class="step-panel card" style="display: none;">
+      <div class="card-title">
+        <span class="step-badge">2</span>
+        <span>Get Your Key from DeepSeek</span>
+      </div>
+      <p class="card-desc">Follow these 3 quick steps on DeepSeek to copy your key:</p>
+
+      <div class="callout-box">
+        <strong>⚠️ Important: Log into DeepSeek First</strong><br>
+        Make sure you are logged into <a href="https://chat.deepseek.com" target="_blank" style="color: #000000; font-weight: 700;">chat.deepseek.com</a>. If you aren't logged in, the bookmark cannot find your key!
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-num">1</div>
+        <div class="guide-body">
+          <strong>Open DeepSeek:</strong> Click the button below to open DeepSeek in a new tab:
+          <div style="margin: 8px 0;">
+            <a href="https://chat.deepseek.com" target="_blank" class="btn-primary" style="font-size: 12px; padding: 7px 14px;">
+              Open chat.deepseek.com ↗
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-num">2</div>
+        <div class="guide-body">
+          <strong>Log In:</strong> If you are not already logged in, sign in to your free DeepSeek account.
+        </div>
+      </div>
+
+      <div class="guide-step">
+        <div class="guide-num">3</div>
+        <div class="guide-body">
+          <strong>Click the Bookmark:</strong> Click your <strong>⭐ DeepSeek Key Grabber</strong> bookmark in your browser bar. A popup will confirm your API key is copied!
+        </div>
+      </div>
+
+      <div class="wizard-nav">
+        <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
+        <div style="display: flex; gap: 12px; align-items: center;">
+          <button class="btn-text" onclick="goToStep(4)">Skip to App Setup →</button>
+          <button class="btn-primary" onclick="goToStep(3)">Next: Verify Key →</button>
         </div>
       </div>
     </div>
 
-    <!-- STEP 2: Verify Token Panel -->
-    <div id="step-panel-2" class="step-panel card" style="display: none;">
+    <!-- STEP 3: Verify Token Panel -->
+    <div id="step-panel-3" class="step-panel card" style="display: none;">
       <div class="card-title">
-        <span class="step-badge">2</span>
-        <span>Verify Your API Key</span>
+        <span class="step-badge">3</span>
+        <span>Verify Your API Key (Optional)</span>
       </div>
-      <p class="card-desc">Make sure your key is active and working before configuring your AI tool (any "Bearer " prefix is stripped automatically):</p>
+      <p class="card-desc">Paste your key below to confirm it works with the proxy (any "Bearer " prefix is stripped automatically):</p>
 
       <div>
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your API Key Below</label>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your API Key</label>
         <div class="input-row">
           <input type="text" id="test-token-input" class="input-field" placeholder="Paste your key here (Ctrl + V)..." />
           <button id="btn-test-token" class="btn-primary" onclick="runTokenTest()">Verify Key</button>
@@ -970,15 +1090,15 @@ function renderSetupHtml(origin) {
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
-        <button class="btn-primary" onclick="goToStep(3)">Next: Connect to App →</button>
+        <button class="btn-secondary" onclick="goToStep(2)">← Back to Step 2</button>
+        <button class="btn-primary" onclick="goToStep(4)">Next: Connect to App →</button>
       </div>
     </div>
 
-    <!-- STEP 3: Connect to App Panel -->
-    <div id="step-panel-3" class="step-panel card" style="display: none;">
+    <!-- STEP 4: Connect to App Panel -->
+    <div id="step-panel-4" class="step-panel card" style="display: none;">
       <div class="card-title">
-        <span class="step-badge">3</span>
+        <span class="step-badge">4</span>
         <span>Connect to Your AI App</span>
       </div>
       <p class="card-desc">Enter these 3 values into your IDE, extension, or OpenAI-compatible client:</p>
@@ -987,7 +1107,7 @@ function renderSetupHtml(origin) {
         <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. Base URL</label>
         <div class="copy-row">
           <span id="base-url-text">${baseUrl}</span>
-          <button class="btn-copy" onclick="copyText('base-url-text')">Copy URL</button>
+          <button class="btn-copy" onclick="copyText('base-url-text', 'Base URL')">Copy URL</button>
         </div>
       </div>
 
@@ -995,9 +1115,9 @@ function renderSetupHtml(origin) {
         <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key (Without "Bearer")</label>
         <div class="copy-row">
           <span id="api-key-display" style="font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; color: var(--text-muted);">
-            (Verified key will appear here, or paste from Step 1)
+            (Verified key will appear here, or paste from clipboard)
           </span>
-          <button class="btn-copy" id="btn-copy-api-key" onclick="copyTokenStep3()">Copy API Key</button>
+          <button class="btn-copy" id="btn-copy-api-key" onclick="copyTokenStep4()">Copy API Key</button>
         </div>
       </div>
 
@@ -1005,7 +1125,7 @@ function renderSetupHtml(origin) {
         <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">3. Model Name</label>
         <div class="copy-row">
           <span id="model-name-text">deepseek-reasoner</span>
-          <button class="btn-copy" onclick="copyText('model-name-text')">Copy Model</button>
+          <button class="btn-copy" onclick="copyText('model-name-text', 'Model Name')">Copy Model</button>
         </div>
         <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
           Note: You can also use <code>deepseek-chat</code> for standard conversational mode without extended reasoning.
@@ -1062,7 +1182,7 @@ for chunk in response:
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(2)">← Back to Verify Key</button>
+        <button class="btn-secondary" onclick="goToStep(3)">← Back to Verify Key</button>
         <button class="btn-primary" onclick="goToStep(1)">Start Over</button>
       </div>
     </div>
@@ -1086,9 +1206,24 @@ npx wrangler deploy</code></pre>
 
   </div>
 
+  <!-- Modern Floating Toast -->
+  <div id="toast" class="toast"></div>
+
   <script>
     let currentStep = 1;
     let savedVerifiedToken = '';
+    let toastTimer = null;
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      if (!toast) return;
+      toast.innerHTML = msg;
+      toast.classList.add('show');
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
+    }
 
     function cleanRawToken(str) {
       let s = (str || '').trim();
@@ -1112,7 +1247,7 @@ npx wrangler deploy</code></pre>
       return s;
     }
 
-    function updateApiKeyStep3(cleanKey) {
+    function updateApiKeyStep4(cleanKey) {
       savedVerifiedToken = cleanKey;
       const disp = document.getElementById('api-key-display');
       if (disp) {
@@ -1131,7 +1266,7 @@ npx wrangler deploy</code></pre>
       testInput.addEventListener('input', function() {
         const clean = cleanRawToken(this.value);
         if (clean.length > 20) {
-          updateApiKeyStep3(clean);
+          updateApiKeyStep4(clean);
         }
       });
     }
@@ -1139,7 +1274,8 @@ npx wrangler deploy</code></pre>
     function goToStep(step) {
       currentStep = step;
       document.querySelectorAll('.step-panel').forEach(p => p.style.display = 'none');
-      document.getElementById('step-panel-' + step).style.display = 'block';
+      const panel = document.getElementById('step-panel-' + step);
+      if (panel) panel.style.display = 'block';
 
       document.querySelectorAll('.step-nav-btn').forEach((btn, idx) => {
         if (idx + 1 === step) {
@@ -1151,29 +1287,29 @@ npx wrangler deploy</code></pre>
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function copyText(elemId) {
+    function copyText(elemId, label) {
       const text = document.getElementById(elemId).textContent;
       navigator.clipboard.writeText(text);
-      alert('Copied to clipboard: ' + text);
+      showToast('✓ ' + (label || 'Text') + ' copied to clipboard!');
     }
 
     function copyVerifiedToken() {
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        alert('✓ API Key copied to clipboard! (Without Bearer)');
+        showToast('✓ API Key copied to clipboard! (Without Bearer)');
       } else {
-        alert('No key to copy yet. Paste and verify your key first!');
+        showToast('⚠️ No key available yet. Paste your key above and verify.');
       }
     }
 
-    function copyTokenStep3() {
+    function copyTokenStep4() {
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        alert('✓ API Key copied to clipboard! (Without Bearer)');
+        showToast('✓ API Key copied to clipboard! (Without Bearer)');
       } else {
-        alert('Please get your key from Step 1 or enter it in Step 2.');
+        showToast('⚠️ Please complete Step 2 or verify your key in Step 3.');
       }
     }
 
@@ -1191,7 +1327,7 @@ npx wrangler deploy</code></pre>
       const raw = input.value.trim();
 
       if (!raw) {
-        alert('Please paste your key in the box first!');
+        showToast('⚠️ Please paste your API key in the box first');
         return;
       }
 
@@ -1223,16 +1359,17 @@ npx wrangler deploy</code></pre>
 
         const data = await resp.json();
         if (resp.ok && data.choices && data.choices[0]) {
-          updateApiKeyStep3(cleanKey);
+          updateApiKeyStep4(cleanKey);
+          showToast('✓ API Key verified and saved to Step 4!');
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
           resBox.innerHTML = \`
             <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">✓ Key is active and working!</div>
-            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully. Saved to Step 3 (Without "Bearer").</div>
+            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully. Saved to Step 4 (Without "Bearer").</div>
             <div style="display: flex; gap: 8px;">
               <button class="btn-copy" onclick="copyVerifiedToken()">📋 Copy Key</button>
-              <button class="btn-primary" onclick="goToStep(3)">Continue to Step 3 →</button>
+              <button class="btn-primary" style="padding: 6px 14px; font-size: 12px;" onclick="goToStep(4)">Continue to Step 4 →</button>
             </div>
           \`;
         } else {
@@ -1241,12 +1378,14 @@ npx wrangler deploy</code></pre>
           resBox.style.color = '#000000';
           const errMsg = data.error ? data.error.message : JSON.stringify(data);
           resBox.innerHTML = '<strong>❌ Verification failed:</strong> ' + errMsg;
+          showToast('❌ Verification failed');
         }
       } catch (err) {
         resBox.style.background = '#fafafa';
         resBox.style.border = '1px solid #111111';
         resBox.style.color = '#000000';
         resBox.innerHTML = '<strong>❌ Network error:</strong> ' + err.message;
+        showToast('❌ Network error: ' + err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Verify Key';
