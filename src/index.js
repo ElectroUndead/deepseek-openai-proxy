@@ -1398,6 +1398,36 @@ npx wrangler deploy</code></pre>
       return s;
     }
 
+    function getProxyApiOrigin() {
+      if (window.location.hostname.includes('workers.dev')) {
+        return window.location.origin;
+      }
+      return 'https://deepseek-setup.antigravity-cloudflare-worker.workers.dev';
+    }
+
+    function getProxyBaseUrl() {
+      return getProxyApiOrigin() + '/v1';
+    }
+
+    function initProxyUrls() {
+      const baseUrl = getProxyBaseUrl();
+      const baseElem = document.getElementById('base-url-text');
+      if (baseElem) baseElem.textContent = baseUrl;
+
+      const cursorPre = document.querySelector('#tab-ide-cursor pre code');
+      if (cursorPre) {
+        cursorPre.textContent = '1. Open Cursor Settings (gear icon).\\n2. Go to "Models" -> "OpenAI".\\n3. Turn ON "Override OpenAI Base URL" and enter:\\n   ' + baseUrl + '\\n4. In "OpenAI API Key", paste your API key.\\n5. In model list, add: deepseek-reasoner (or deepseek-chat)';
+      }
+      const vscodePre = document.querySelector('#tab-ide-vscode pre code');
+      if (vscodePre) {
+        vscodePre.textContent = 'In Cline / Continue / Roo Code settings:\\nProvider: OpenAI Compatible\\nBase URL: ' + baseUrl + '\\nAPI Key: Paste your API key\\nModel ID: deepseek-reasoner';
+      }
+      const clientsPre = document.querySelector('#tab-ide-clients pre code');
+      if (clientsPre) {
+        clientsPre.textContent = 'In NextChat, Chatbox, or LibreChat:\\nAPI Provider: OpenAI\\nBase URL (API Host): ' + baseUrl + '\\nAPI Key: Paste your API key\\nModel: deepseek-reasoner';
+      }
+    }
+
     function updateApiKeyStep5(cleanKey) {
       savedVerifiedToken = cleanKey;
       const disp = document.getElementById('api-key-display');
@@ -1408,7 +1438,7 @@ npx wrangler deploy</code></pre>
       }
       const pyCode = document.getElementById('py-sdk-code');
       if (pyCode) {
-        pyCode.textContent = 'from openai import OpenAI\\n\\nclient = OpenAI(\\n    base_url="' + "${baseUrl}" + '",\\n    api_key="' + cleanKey + '"\\n)\\n\\nresponse = client.chat.completions.create(\\n    model="deepseek-reasoner",\\n    messages=[{"role": "user", "content": "Hello!"}],\\n    stream=True\\n)\\nfor chunk in response:\\n    print(chunk.choices[0].delta.content or "", end="")';
+        pyCode.textContent = 'from openai import OpenAI\\n\\nclient = OpenAI(\\n    base_url="' + getProxyBaseUrl() + '",\\n    api_key="' + cleanKey + '"\\n)\\n\\nresponse = client.chat.completions.create(\\n    model="deepseek-reasoner",\\n    messages=[{"role": "user", "content": "Hello!"}],\\n    stream=True\\n)\\nfor chunk in response:\\n    print(chunk.choices[0].delta.content or "", end="")';
       }
     }
 
@@ -1543,7 +1573,7 @@ npx wrangler deploy</code></pre>
       resBox.innerHTML = 'Verifying key with DeepSeek and solving challenge...';
 
       try {
-        const resp = await fetch('/v1/chat/completions', {
+        const resp = await fetch(getProxyApiOrigin() + '/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1589,6 +1619,7 @@ npx wrangler deploy</code></pre>
       }
     }
 
+    initProxyUrls();
     renderStarStepStatus();
     if (hasStarredRepo()) {
       goToStep(2);
