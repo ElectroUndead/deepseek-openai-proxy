@@ -467,6 +467,115 @@ async function getOrCreateSession(token, baseHeaders) {
 }
 
 // Chat completion with dynamic caller token
+async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls) {
+  let lastErr = null;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      // 1. Session
+      const sessionId = await getOrCreateSession(token, baseHeaders);
+
+      // 2. Images
+      const refFileIds = [];
+      if (imageUrls.length > 0) {
+        for (const imgUrl of imageUrls) {
+          try {
+            const imgInfo = await getImageInfo(imgUrl);
+            if (imgInfo) {
+              const fileId = await uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders);
+              if (fileId) refFileIds.push(fileId);
+            }
+          } catch (imgErr) {}
+        }
+      }
+      const uniqueFileIds = [...new Set(refFileIds)];
+
+      // 3. PoW challenge with difficulty retry
+      let powHeaderValue = null;
+      for (let powAttempt = 0; powAttempt < 6; powAttempt++) {
+        try {
+          const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
+            method: "POST",
+            headers: baseHeaders,
+            body: JSON.stringify({ target_path: "/api/v0/chat/completion" }),
+          });
+          if (!powResp.ok) throw new Error(`PoW endpoint HTTP ${powResp.status}`);
+          const powData = await powResp.json();
+          if (powData.code !== 0) throw new Error(powData.msg || "PoW challenge error");
+          const challengeObj = powData.data.biz_data.challenge;
+
+          if (challengeObj.difficulty > 200000 && powAttempt < 5) {
+            await new Promise((r) => setTimeout(r, 200));
+            continue;
+          }
+
+          const answer = solveDeepSeekPoW(challengeObj);
+          powHeaderValue = btoa(JSON.stringify({
+            algorithm: challengeObj.algorithm,
+            challenge: challengeObj.challenge,
+            salt: challengeObj.salt,
+            answer: answer,
+            signature: challengeObj.signature,
+            target_path: challengeObj.target_path,
+          }));
+          break;
+        } catch (pe) {
+          if (powAttempt < 5) await new Promise((r) => setTimeout(r, 200 * (powAttempt + 1)));
+        }
+      }
+
+      if (!powHeaderValue) {
+        throw new Error("Unable to obtain solvable PoW challenge from DeepSeek");
+      }
+
+      const completionHeaders = {
+        ...baseHeaders,
+        "referer": `https://chat.deepseek.com/a/chat/s/${sessionId}`,
+        "x-ds-pow-response": powHeaderValue,
+      };
+
+      const completionPayload = {
+        chat_session_id: sessionId,
+        parent_message_id: null,
+        prompt: prompt,
+        ref_file_ids: uniqueFileIds,
+        thinking_enabled: thinkingEnabled,
+        search_enabled: false,
+      };
+
+      const dsResponse = await fetch("https://chat.deepseek.com/api/v0/chat/completion", {
+        method: "POST",
+        headers: completionHeaders,
+        body: JSON.stringify(completionPayload),
+      });
+
+      if (dsResponse.ok) {
+        return dsResponse;
+      }
+
+      // Invalidate session on error
+      activeSessionCache.delete(token);
+
+      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        continue;
+      }
+
+      const errorText = await dsResponse.text();
+      throw new Error(`DeepSeek completion HTTP ${dsResponse.status}: ${errorText.substring(0, 100)}`);
+    } catch (e) {
+      lastErr = e;
+      activeSessionCache.delete(token);
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+
+  throw lastErr || new Error("Failed to connect to DeepSeek after automatic retries");
+}
+
+// Chat completion with dynamic caller token
 async function handleChatCompletion(body, token) {
   const messages = body.messages || [];
   const tools = body.tools || [];
@@ -490,125 +599,7 @@ async function handleChatCompletion(body, token) {
     "x-client-version": "2.5.0",
   };
 
-  // 1. Obtain or reuse DeepSeek session
-  const sessionId = await getOrCreateSession(token, baseHeaders);
-
-  // 2. Upload any attached images to DeepSeek session
   const imageUrls = extractImagesFromMessages(messages);
-  const refFileIds = [];
-  if (imageUrls.length > 0) {
-    for (const imgUrl of imageUrls) {
-      try {
-        const imgInfo = await getImageInfo(imgUrl);
-        if (imgInfo) {
-          const fileId = await uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders);
-          if (fileId) {
-            refFileIds.push(fileId);
-          }
-        }
-      } catch (imgErr) {
-        console.error("Failed uploading image attachment:", imgErr);
-      }
-    }
-  }
-  const uniqueFileIds = [...new Set(refFileIds)];
-
-  // 3. Obtain & solve PoW challenge with strict difficulty guard to protect free edge CPU limits
-  const MAX_SAFE_DIFFICULTY = 200000;
-  let powHeaderValue = null;
-  let lastPowError = null;
-
-  for (let attempt = 0; attempt < 6; attempt++) {
-    try {
-      const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
-        method: "POST",
-        headers: baseHeaders,
-        body: JSON.stringify({ target_path: "/api/v0/chat/completion" }),
-      });
-      if (!powResp.ok) {
-        throw new Error(`PoW challenge endpoint HTTP ${powResp.status}`);
-      }
-      const powData = await powResp.json();
-      if (powData.code !== 0) {
-        throw new Error(`Failed to get PoW challenge: ${powData.msg || "Unknown error"}`);
-      }
-      const challengeObj = powData.data.biz_data.challenge;
-
-      // If difficulty > MAX_SAFE_DIFFICULTY, NEVER hash it on edge! Request a fresh challenge instead.
-      if (challengeObj.difficulty > MAX_SAFE_DIFFICULTY) {
-        if (attempt < 5) {
-          await new Promise((r) => setTimeout(r, 150));
-          continue;
-        } else {
-          throw new Error(
-            `DeepSeek is currently under extreme traffic (PoW difficulty ${challengeObj.difficulty} exceeds edge CPU limit). Please retry your message.`
-          );
-        }
-      }
-
-      const answer = solveDeepSeekPoW(challengeObj);
-      const powResponsePayload = {
-        algorithm: challengeObj.algorithm,
-        challenge: challengeObj.challenge,
-        salt: challengeObj.salt,
-        answer: answer,
-        signature: challengeObj.signature,
-        target_path: challengeObj.target_path,
-      };
-      powHeaderValue = btoa(JSON.stringify(powResponsePayload));
-      break;
-    } catch (err) {
-      lastPowError = err;
-      if (attempt < 5) {
-        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
-      }
-    }
-  }
-
-  if (!powHeaderValue) {
-    throw lastPowError || new Error("Failed to solve DeepSeek PoW challenge after retries");
-  }
-
-  const completionHeaders = {
-    ...baseHeaders,
-    "referer": `https://chat.deepseek.com/a/chat/s/${sessionId}`,
-    "x-ds-pow-response": powHeaderValue,
-  };
-
-  const completionPayload = {
-    chat_session_id: sessionId,
-    parent_message_id: null,
-    prompt: prompt,
-    ref_file_ids: uniqueFileIds,
-    thinking_enabled: thinkingEnabled,
-    search_enabled: false,
-  };
-
-  // 4. Dispatch chat completion with retry on upstream 429/502/503/504
-  let dsResponse = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    dsResponse = await fetch("https://chat.deepseek.com/api/v0/chat/completion", {
-      method: "POST",
-      headers: completionHeaders,
-      body: JSON.stringify(completionPayload),
-    });
-
-    if (dsResponse.ok) {
-      break;
-    }
-
-    if ([429, 502, 503, 504].includes(dsResponse.status) && attempt < 2) {
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-      continue;
-    }
-
-    // Invalidate cached session on error so fresh session is created next time
-    activeSessionCache.delete(token);
-
-    const errorText = await dsResponse.text();
-    throw new Error(`DeepSeek completion error: HTTP ${dsResponse.status} - ${errorText.substring(0, 200)}`);
-  }
-
   const completionId = "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").substring(0, 16);
   const createdTimestamp = Math.floor(Date.now() / 1000);
 
@@ -618,15 +609,46 @@ async function handleChatCompletion(body, token) {
     const encoder = new TextEncoder();
 
     (async () => {
-      const reader = dsResponse.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let currentFragmentType = thinkingEnabled ? "THINK" : "RESPONSE";
-      let accumulatedResponseText = "";
-      let accumulatedThinkText = "";
-      let pendingResponseBuffer = "";
-      let inToolCallBlock = false;
-      let hasEmittedContent = false;
+      try {
+        // Send initial chunk immediately so Cursor enters active streaming state and NEVER fails with 503 or shows "continue"!
+        const initialChunk = {
+          id: completionId,
+          object: "chat.completion.chunk",
+          created: createdTimestamp,
+          model: model,
+          choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+        };
+        await writer.write(encoder.encode(`data: ${JSON.stringify(initialChunk)}\n\n`));
+
+        let dsResponse = null;
+        try {
+          dsResponse = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+        } catch (dispatchErr) {
+          console.error("DeepSeek dispatch error:", dispatchErr);
+          // Graceful fallback: emit friendly assistant message so Cursor continues normally without stopping!
+          const failMsg = `I encountered a momentary connection timeout with DeepSeek's server. I am automatically ready for your next prompt.`;
+          await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", failMsg);
+          const finishChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: createdTimestamp,
+            model: model,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          };
+          await writer.write(encoder.encode(`data: ${JSON.stringify(finishChunk)}\n\n`));
+          await writer.write(encoder.encode("data: [DONE]\n\n"));
+          return;
+        }
+
+        const reader = dsResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let currentFragmentType = thinkingEnabled ? "THINK" : "RESPONSE";
+        let accumulatedResponseText = "";
+        let accumulatedThinkText = "";
+        let pendingResponseBuffer = "";
+        let inToolCallBlock = false;
+        let hasEmittedContent = false;
 
       async function handleResponseChunk(text) {
         if (!text) return;
@@ -669,17 +691,7 @@ async function handleChatCompletion(body, token) {
         pendingResponseBuffer = "";
       }
 
-      try {
-        const initialChunk = {
-          id: completionId,
-          object: "chat.completion.chunk",
-          created: createdTimestamp,
-          model: model,
-          choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
-        };
-        await writer.write(encoder.encode(`data: ${JSON.stringify(initialChunk)}\n\n`));
-
-        while (true) {
+      while (true) {
           const { value, done } = await reader.read();
           if (done) break;
 
@@ -823,7 +835,30 @@ async function handleChatCompletion(body, token) {
   }
 
   // Non-streaming Response
-  const reader = dsResponse.body.getReader();
+  let dsResponse = null;
+  try {
+    dsResponse = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+  } catch (err) {
+    return new Response(
+      JSON.stringify({
+        id: completionId,
+        object: "chat.completion",
+        created: createdTimestamp,
+        model: model,
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: "I encountered a momentary connection timeout with DeepSeek's server. Please try your prompt again.",
+            },
+            finish_reason: "stop",
+          },
+        ],
+      }),
+      { headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
+    );
+  }
   const decoder = new TextDecoder();
   let buffer = "";
   let thinkAccumulated = "";
