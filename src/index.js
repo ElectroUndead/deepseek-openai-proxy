@@ -467,11 +467,15 @@ async function getOrCreateSession(token, baseHeaders) {
 }
 
 // Chat completion with dynamic caller token
-async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls) {
+async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls, onRetryNotice) {
   let lastErr = null;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
+      if (attempt > 0 && typeof onRetryNotice === "function") {
+        await onRetryNotice(attempt);
+      }
+
       // 1. Session
       const sessionId = await getOrCreateSession(token, baseHeaders);
 
@@ -492,7 +496,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
 
       // 3. PoW challenge with difficulty retry
       let powHeaderValue = null;
-      for (let powAttempt = 0; powAttempt < 6; powAttempt++) {
+      for (let powAttempt = 0; powAttempt < 8; powAttempt++) {
         try {
           const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
             method: "POST",
@@ -504,8 +508,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           if (powData.code !== 0) throw new Error(powData.msg || "PoW challenge error");
           const challengeObj = powData.data.biz_data.challenge;
 
-          if (challengeObj.difficulty > 200000 && powAttempt < 5) {
-            await new Promise((r) => setTimeout(r, 200));
+          if (challengeObj.difficulty > 200000 && powAttempt < 7) {
+            await new Promise((r) => setTimeout(r, 250));
             continue;
           }
 
@@ -520,7 +524,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           }));
           break;
         } catch (pe) {
-          if (powAttempt < 5) await new Promise((r) => setTimeout(r, 200 * (powAttempt + 1)));
+          if (powAttempt < 7) await new Promise((r) => setTimeout(r, 250 * (powAttempt + 1)));
         }
       }
 
@@ -556,8 +560,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       // Invalidate session on error
       activeSessionCache.delete(token);
 
-      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
         continue;
       }
 
@@ -566,8 +570,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
     } catch (e) {
       lastErr = e;
       activeSessionCache.delete(token);
-      if (attempt < 2) {
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      if (attempt < 4) {
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
       }
     }
   }
@@ -622,11 +626,23 @@ async function handleChatCompletion(body, token) {
 
         let dsResponse = null;
         try {
-          dsResponse = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+          dsResponse = await dispatchDeepSeekCompletion(
+            prompt,
+            messages,
+            tools,
+            baseHeaders,
+            token,
+            thinkingEnabled,
+            imageUrls,
+            async (attemptNum) => {
+              // Keep connection alive with silent SSE heartbeat during backoff
+              await writer.write(encoder.encode(`: ping\n\n`));
+            }
+          );
         } catch (dispatchErr) {
           console.error("DeepSeek dispatch error:", dispatchErr);
           // Graceful fallback: emit friendly assistant message so Cursor continues normally without stopping!
-          const failMsg = `I encountered a momentary connection timeout with DeepSeek's server. I am automatically ready for your next prompt.`;
+          const failMsg = `I waited for the DeepSeek server load to normalize, but the connection timed out. I am automatically ready for your next prompt.`;
           await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", failMsg);
           const finishChunk = {
             id: completionId,
