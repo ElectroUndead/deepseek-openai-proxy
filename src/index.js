@@ -543,10 +543,9 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 
 // -----------------------------------------------------------------------------
 // 100% NON-TECHY FRIENDLY, WHITE-THEMED, BLACK & WHITE SETUP PAGE (ZERO CODING)
-// -----------------------------------------------------------------------------
 function renderSetupHtml(origin) {
   const baseUrl = `${origin}/v1`;
-  const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{t=JSON.parse(raw).value||raw;}catch(e){t=raw;}}if(!t)return alert('No active DeepSeek session found! Please log in on chat.deepseek.com first.');while(t.startsWith('Bearer '))t=t.substring(7).trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek API Key to clipboard! (Without Bearer)');}catch(e){alert('Error copying key: '+e);}})();`;
+  const bookmarkletCode = `javascript:(function(){try{if(!window.location.hostname.includes('deepseek.com')){return alert('❌ Key NOT copied: You must be on chat.deepseek.com! Please open chat.deepseek.com, log in, and click this bookmark.');}let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=p.value||p.token||p.userToken||raw;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();if((t.startsWith('"')&&t.endsWith('"'))||(t.startsWith("'")&&t.endsWith("'")))t=t.slice(1,-1).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('❌ Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek API Key to clipboard!');}catch(e){alert('❌ Key NOT copied: '+e);}})();`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1105,7 +1104,7 @@ function renderSetupHtml(origin) {
           <div class="flow-content">
             <div class="flow-title">Key Copied to Clipboard</div>
             <p class="flow-desc">
-              A popup will confirm the key is copied. Your raw API key is now on your clipboard (without "Bearer").
+              A popup will confirm the key is copied. Your API key is now on your clipboard, ready to use.
             </p>
           </div>
         </div>
@@ -1127,7 +1126,7 @@ function renderSetupHtml(origin) {
         <span class="step-badge">3</span>
         <span>Verify Your API Key (Optional)</span>
       </div>
-      <p class="card-desc">Paste your key below to confirm it works with the proxy (any "Bearer " prefix is stripped automatically):</p>
+      <p class="card-desc">Paste your key below to test and confirm that it works with the proxy:</p>
 
       <div>
         <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your API Key</label>
@@ -1161,7 +1160,7 @@ function renderSetupHtml(origin) {
       </div>
 
       <div style="margin-top: 14px;">
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key (Without "Bearer")</label>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key</label>
         <div class="copy-row">
           <span id="api-key-display" style="font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; color: var(--text-muted);">
             (Verified key will appear here, or paste from clipboard)
@@ -1193,7 +1192,7 @@ function renderSetupHtml(origin) {
 2. Go to "Models" -> "OpenAI".
 3. Turn ON "Override OpenAI Base URL" and enter:
    ${baseUrl}
-4. In "OpenAI API Key", paste your API key (without Bearer).
+4. In "OpenAI API Key", paste your API key.
 5. In model list, add: deepseek-reasoner (or deepseek-chat)</code></pre>
       </div>
 
@@ -1201,7 +1200,7 @@ function renderSetupHtml(origin) {
         <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
 Base URL: ${baseUrl}
-API Key: Paste your API key (without Bearer)
+API Key: Paste your API key
 Model ID: deepseek-reasoner</code></pre>
       </div>
 
@@ -1209,7 +1208,7 @@ Model ID: deepseek-reasoner</code></pre>
         <pre><code>In NextChat, Chatbox, or LibreChat:
 API Provider: OpenAI
 Base URL (API Host): ${baseUrl}
-API Key: Paste your API key (without Bearer)
+API Key: Paste your API key
 Model: deepseek-reasoner</code></pre>
       </div>
 
@@ -1346,7 +1345,7 @@ npx wrangler deploy</code></pre>
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        showToast('✓ API Key copied to clipboard! (Without Bearer)');
+        showToast('✓ API Key copied to clipboard!');
       } else {
         showToast('⚠️ No key available yet. Paste your key above and verify.');
       }
@@ -1356,7 +1355,7 @@ npx wrangler deploy</code></pre>
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        showToast('✓ API Key copied to clipboard! (Without Bearer)');
+        showToast('✓ API Key copied to clipboard!');
       } else {
         showToast('⚠️ Please complete Step 2 or verify your key in Step 3.');
       }
@@ -1415,7 +1414,7 @@ npx wrangler deploy</code></pre>
           resBox.style.color = '#000000';
           resBox.innerHTML = \`
             <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">✓ Key is active and working!</div>
-            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully. Saved to Step 4 (Without "Bearer").</div>
+            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully and your key is saved for Step 4.</div>
             <div style="display: flex; gap: 8px;">
               <button class="btn-copy" onclick="copyVerifiedToken()">📋 Copy Key</button>
               <button class="btn-primary" style="padding: 6px 14px; font-size: 12px;" onclick="goToStep(4)">Continue to Step 4 →</button>
