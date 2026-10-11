@@ -1,9 +1,16 @@
 import wasmModule from "./sha3_wasm_v1.wasm";
 
+let cachedWasmInstance = null;
+function getWasmExports() {
+  if (!cachedWasmInstance) {
+    cachedWasmInstance = new WebAssembly.Instance(wasmModule, {});
+  }
+  return cachedWasmInstance.exports;
+}
+
 // Solve PoW challenge using WebAssembly in Cloudflare Edge
 function solveDeepSeekPoW(challengeObj) {
-  const instance = new WebAssembly.Instance(wasmModule, {});
-  const { memory, wasm_solve, __wbindgen_add_to_stack_pointer, __wbindgen_export_0: alloc } = instance.exports;
+  const { memory, wasm_solve, __wbindgen_add_to_stack_pointer, __wbindgen_export_0: alloc } = getWasmExports();
 
   const { challenge, salt, difficulty, expire_at } = challengeObj;
   const prefix = `${salt}_${expire_at}_`;
@@ -262,9 +269,25 @@ function formatPromptWithTools(messages, tools) {
     );
   }
 
-  for (const m of messages) {
+  // Estimate total prompt character length for large chat detection
+  const totalLength = messages.reduce((acc, m) => acc + (typeof m.content === "string" ? m.content.length : 1000), 0);
+  const isLargeChat = totalLength > 60000;
+  const recentThresholdIndex = Math.max(0, messages.length - 12);
+
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
     const role = (m.role || "user").toUpperCase();
-    const contentText = extractMessageContent(m.content);
+    let contentText = extractMessageContent(m.content);
+
+    // If chat is massive, compact older tool outputs and huge messages from earlier turns
+    if (isLargeChat && i < recentThresholdIndex && i > 0) {
+      if (m.role === "tool" && contentText.length > 1200) {
+        contentText = contentText.substring(0, 1000) + `\n... [truncated ${contentText.length - 1000} characters for context limit] ...`;
+      } else if (contentText.length > 3000) {
+        contentText = contentText.substring(0, 2500) + `\n... [truncated ${contentText.length - 2500} characters for context limit] ...`;
+      }
+    }
+
     if (m.role === "tool") {
       promptParts.push(`[TOOL RESULT for ${m.name || m.tool_call_id}]:\n${contentText}`);
     } else if (m.tool_calls && m.tool_calls.length > 0) {
@@ -491,7 +514,7 @@ async function handleChatCompletion(body, token) {
   const uniqueFileIds = [...new Set(refFileIds)];
 
   // 3. Obtain & solve PoW challenge with strict difficulty guard to protect free edge CPU limits
-  const MAX_SAFE_DIFFICULTY = 15000;
+  const MAX_SAFE_DIFFICULTY = 200000;
   let powHeaderValue = null;
   let lastPowError = null;
 
