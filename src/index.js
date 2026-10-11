@@ -89,6 +89,27 @@ function parseDSML(text) {
   return { contentBefore, toolCalls };
 }
 
+function extractMessageContent(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const textParts = [];
+    let hasImages = false;
+    for (const part of content) {
+      if (part && part.type === "text" && part.text) {
+        textParts.push(part.text);
+      } else if (part && (part.type === "image_url" || part.image_url)) {
+        hasImages = true;
+      }
+    }
+    let res = textParts.join("\n");
+    if (hasImages) {
+      res += "\n\n[Note: User attached an image, but DeepSeek R1/V3 is a text-only model]";
+    }
+    return res;
+  }
+  return String(content || "");
+}
+
 function formatPromptWithTools(messages, tools) {
   let promptParts = [];
 
@@ -107,16 +128,17 @@ function formatPromptWithTools(messages, tools) {
 
   for (const m of messages) {
     const role = (m.role || "user").toUpperCase();
+    const contentText = extractMessageContent(m.content);
     if (m.role === "tool") {
-      promptParts.push(`[TOOL RESULT for ${m.name || m.tool_call_id}]:\n${m.content}`);
+      promptParts.push(`[TOOL RESULT for ${m.name || m.tool_call_id}]:\n${contentText}`);
     } else if (m.tool_calls && m.tool_calls.length > 0) {
       const callsStr = m.tool_calls
         .map((t) => `${t.function.name}(${t.function.arguments})`)
         .join(", ");
       promptParts.push(`ASSISTANT (Tool Invocations): ${callsStr}`);
-      if (m.content) promptParts.push(`ASSISTANT: ${m.content}`);
+      if (contentText) promptParts.push(`ASSISTANT: ${contentText}`);
     } else {
-      promptParts.push(`${role}: ${m.content}`);
+      promptParts.push(`${role}: ${contentText}`);
     }
   }
 
