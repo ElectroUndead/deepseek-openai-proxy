@@ -1,17 +1,21 @@
 {
-  "name": "deepseek-openai-proxy",
+  "name": "freeseek",
   "version": "1.0.0",
-  "description": "100% Free OpenAI-compatible proxy for DeepSeek R1 & V3 on Cloudflare Workers with WebAssembly PoW solving and DSML tool calling.",
+  "description": "100% Free OpenAI-compatible proxy for DeepSeek R1 & V3 with WebAssembly PoW solving and DSML tool calling.",
   "main": "src/index.js",
+  "bin": {
+    "freeseek": "./bin/freeseek.js"
+  },
   "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev"
+    "start": "node bin/freeseek.js",
+    "local": "node bin/freeseek.js",
+    "dev": "node bin/freeseek.js",
+    "deploy": "wrangler deploy"
   },
   "keywords": [
     "deepseek",
     "openai",
     "proxy",
-    "cloudflare-workers",
     "cursor",
     "cline",
     "r1"

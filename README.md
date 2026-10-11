@@ -110,7 +110,29 @@ for chunk in response:
         print(chunk.choices[0].delta.content, end="")
 ```
 
+```
+
 ---
 
-## 📄 License
+## Running Locally (freeseek CLI)
+
+If you prefer running the proxy directly on your machine without Cloudflare edge CPU limits:
+
+```bash
+# 1. Run directly from this repo:
+npm start
+
+# 2. Or run globally from any terminal:
+npm link
+freeseek start
+```
+
+Cursor Configuration:
+- Base URL: `http://127.0.0.1:8787/v1`
+- API Key: your DeepSeek token
+- Model: `deepseek-reasoner` or `deepseek-chat`
+
+---
+
+## License
 MIT License. Free for personal and commercial use.
