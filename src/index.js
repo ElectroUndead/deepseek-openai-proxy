@@ -835,8 +835,25 @@ async function handleChatCompletion(body, token) {
         await writer.write(encoder.encode("data: [DONE]\n\n"));
       } catch (streamErr) {
         console.error("Stream processing error:", streamErr);
+        try {
+          if (!hasEmittedContent) {
+            const fallback = accumulatedResponseText.trim() || accumulatedThinkText.trim() || " ";
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", fallback);
+          }
+          const finishChunk = {
+            id: completionId,
+            object: "chat.completion.chunk",
+            created: createdTimestamp,
+            model: model,
+            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+          };
+          await writer.write(encoder.encode(`data: ${JSON.stringify(finishChunk)}\n\n`));
+          await writer.write(encoder.encode("data: [DONE]\n\n"));
+        } catch (e) {}
       } finally {
-        await writer.close();
+        try {
+          await writer.close();
+        } catch (e) {}
       }
     })();
 
