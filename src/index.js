@@ -739,12 +739,49 @@ function renderSetupHtml(origin) {
       margin: 10px 0;
       line-height: 1.45;
     }
-    .note-box {
-      border-left: 2px solid #000000;
-      padding-left: 12px;
-      margin: 14px 0;
-      font-size: 12.5px;
-      color: var(--text-muted);
+    .notice-box {
+      border: 1px solid #111111;
+      background: #fafafa;
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin-bottom: 20px;
+      font-size: 13.5px;
+      line-height: 1.5;
+    }
+    .guide-action-box {
+      background: #f9f9f9;
+      border: 1px dashed #777777;
+      border-radius: 6px;
+      padding: 12px 14px;
+      margin: 6px 0 14px 0;
+      font-size: 13px;
+    }
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin: 10px 0;
+    }
+    .input-field {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid var(--border-dark);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      background: #ffffff;
+      color: #000000;
+    }
+    .input-field:focus {
+      outline: 2px solid #000000;
+    }
+    kbd {
+      display: inline-block;
+      padding: 2px 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: #ffffff;
+      border: 1px solid #111111;
+      border-radius: 3px;
     }
     details summary {
       cursor: pointer;
@@ -782,18 +819,36 @@ function renderSetupHtml(origin) {
           <li>Click the bookmark on the page. Your token is automatically copied to your clipboard!</li>
         </ol>
       </div>
+
+      <!-- Optional Token Tester on Webpage -->
+      <div style="margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px;">
+        <label style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text);">
+          🔍 Optional: Test Your Token Here
+        </label>
+        <p style="font-size: 13px; color: var(--text-muted); margin: 4px 0 8px 0;">
+          Want to verify your token right now? Paste it below and click Verify:
+        </p>
+        <div class="input-row">
+          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your token here (Ctrl + V)..." />
+          <button id="btn-test-token" class="btn-copy" onclick="runTokenTest()">Verify Token</button>
+        </div>
+        <div id="test-token-result" style="display: none; padding: 12px 14px; border-radius: 4px; font-size: 13px; margin-top: 8px;"></div>
+      </div>
     </div>
 
-    <!-- STEP 2: Paste into IDE -->
+    <!-- STEP 2: Configure in Cursor -->
     <div class="card">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Paste Settings into Cursor / VS Code</span>
+        <span>Configure Inside Cursor Desktop App</span>
       </div>
-      <p class="card-desc">Open your IDE settings and enter these 3 values. You're done!</p>
+
+      <div class="notice-box">
+        <strong>⚠️ Note:</strong> Do not paste your token into this website. These 3 settings go inside your <strong>Cursor app</strong> on your computer (Cursor Settings ⚙️ → Models → OpenAI).
+      </div>
 
       <div>
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. OpenAI Base URL</label>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. Override OpenAI Base URL</label>
         <div class="copy-row">
           <span id="base-url-text">${baseUrl}</span>
           <button class="btn-copy" onclick="copyText('base-url-text')">Copy URL</button>
@@ -802,8 +857,8 @@ function renderSetupHtml(origin) {
 
       <div style="margin-top: 14px;">
         <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. OpenAI API Key</label>
-        <div class="copy-row">
-          <span style="color: var(--text-muted);">Paste the token you copied in Step 1 (starts with Bearer...)</span>
+        <div class="guide-action-box">
+          <strong>📋 Inside Cursor:</strong> Click the "OpenAI API Key" box and press <kbd>Ctrl</kbd> + <kbd>V</kbd> to paste the token from your clipboard.
         </div>
       </div>
 
@@ -822,18 +877,19 @@ function renderSetupHtml(origin) {
       </div>
 
       <div id="tab-ide-cursor" class="tab-content active">
-        <pre><code>1. Open Cursor Settings -> Models -> OpenAI.
-2. Toggle "Override OpenAI Base URL" and enter:
+        <pre><code>1. In Cursor, open Settings (gear icon in bottom left or top right).
+2. Go to "Models" -> "OpenAI".
+3. Turn ON "Override OpenAI Base URL" and enter:
    ${baseUrl}
-3. Set API Key to: Paste your token from Step 1
-4. Add Model: deepseek-reasoner (or deepseek-chat)</code></pre>
+4. In "OpenAI API Key", press Ctrl + V to paste your token.
+5. In the model list, type: deepseek-reasoner (or deepseek-chat)</code></pre>
       </div>
 
       <div id="tab-ide-vscode" class="tab-content">
         <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
 Base URL: ${baseUrl}
-API Key: Paste your token from Step 1
+API Key: Paste your DeepSeek token (Ctrl + V)
 Model ID: deepseek-reasoner</code></pre>
       </div>
 
@@ -886,6 +942,62 @@ npx wrangler deploy</code></pre>
       event.target.classList.add('active');
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       document.getElementById('tab-ide-' + ide).classList.add('active');
+    }
+
+    async function runTokenTest() {
+      const input = document.getElementById('test-token-input');
+      const resBox = document.getElementById('test-token-result');
+      const btn = document.getElementById('btn-test-token');
+      const raw = input.value.trim();
+
+      if (!raw) {
+        alert('Please paste your token in the box first!');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Verifying...';
+      resBox.style.display = 'block';
+      resBox.style.background = '#fafafa';
+      resBox.style.border = '1px solid #111111';
+      resBox.style.color = '#000000';
+      resBox.innerHTML = '⏳ Verifying token with DeepSeek and solving PoW challenge...';
+
+      try {
+        const resp = await fetch('/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': raw.startsWith('Bearer ') ? raw : 'Bearer ' + raw
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages: [{ role: 'user', content: 'Say OK' }]
+          })
+        });
+
+        const data = await resp.json();
+        if (resp.ok && data.choices && data.choices[0]) {
+          resBox.style.background = '#000000';
+          resBox.style.border = '1px solid #000000';
+          resBox.style.color = '#ffffff';
+          resBox.innerHTML = '✓ <strong>Token is active and working!</strong><br><span style=\"color:#cccccc;\">DeepSeek replied successfully. Now open Cursor Settings ⚙️ and paste it into "OpenAI API Key".</span>';
+        } else {
+          resBox.style.background = '#fafafa';
+          resBox.style.border = '1px solid #111111';
+          resBox.style.color = '#000000';
+          const errMsg = data.error ? data.error.message : JSON.stringify(data);
+          resBox.innerHTML = '<strong>❌ Verification failed:</strong> ' + errMsg;
+        }
+      } catch (err) {
+        resBox.style.background = '#fafafa';
+        resBox.style.border = '1px solid #111111';
+        resBox.style.color = '#000000';
+        resBox.innerHTML = '<strong>❌ Network error:</strong> ' + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Verify Token';
+      }
     }
   </script>
 </body>
