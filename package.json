@@ -1,0 +1,24 @@
+{
+  "name": "deepseek-openai-proxy",
+  "version": "1.0.0",
+  "description": "100% Free OpenAI-compatible proxy for DeepSeek R1 & V3 on Cloudflare Workers with WebAssembly PoW solving and DSML tool calling.",
+  "main": "src/index.js",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "keywords": [
+    "deepseek",
+    "openai",
+    "proxy",
+    "cloudflare-workers",
+    "cursor",
+    "cline",
+    "r1"
+  ],
+  "author": "Divyansh Shandilya",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

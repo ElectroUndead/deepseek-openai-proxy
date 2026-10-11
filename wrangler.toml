@@ -1,0 +1,15 @@
+name = "deepseek-setup"
+main = "src/index.js"
+compatibility_date = "2024-04-01"
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = false
+
+# Public Open-Source Helper & Setup Worker
+# Users supply their own credentials or deploy their own copy.
+[vars]
+DEEPSEEK_AUTH_TOKEN = ""
+AWS_WAF_TOKEN = ""
+DS_SESSION_ID = ""
