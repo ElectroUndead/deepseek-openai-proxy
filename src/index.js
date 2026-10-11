@@ -145,27 +145,38 @@ export default {
         return new Response("Method Not Allowed", { status: 405, headers: getCorsHeaders() });
       }
 
-      // Extract token dynamically from request Authorization header
-      // Every user sends THEIR OWN token from their IDE. No shared server credentials!
-      const authHeader = request.headers.get("authorization") || "";
+      // Extract token dynamically from request Authorization header or x-api-key
+      const authHeader = request.headers.get("authorization") || request.headers.get("x-api-key") || "";
       let callerToken = null;
 
-      if (authHeader.startsWith("Bearer ")) {
-        const raw = authHeader.substring(7).trim();
-        // Check if raw is a valid DeepSeek token or JSON payload
-        if (raw.startsWith("{")) {
-          try {
-            const parsed = JSON.parse(raw);
-            if (parsed.token) callerToken = parsed.token.startsWith("Bearer ") ? parsed.token : `Bearer ${parsed.token}`;
-          } catch(e) {}
-        } else if (raw.length > 20 && !raw.startsWith("sk-dummy") && !raw.startsWith("dummy")) {
-          callerToken = authHeader;
-        }
+      let rawToken = authHeader.trim();
+      while (rawToken.toLowerCase().startsWith("bearer ")) {
+        rawToken = rawToken.substring(7).trim();
+      }
+
+      // Check if user pasted a JSON string like {"token":"Bearer ..."}
+      if (rawToken.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(rawToken);
+          if (parsed.token) {
+            rawToken = parsed.token.trim();
+            while (rawToken.toLowerCase().startsWith("bearer ")) {
+              rawToken = rawToken.substring(7).trim();
+            }
+          }
+        } catch(e) {}
+      }
+
+      if (rawToken.length > 20 && !rawToken.startsWith("sk-dummy") && !rawToken.startsWith("dummy")) {
+        callerToken = `Bearer ${rawToken}`;
       }
 
       // Fallback if self-hosted with private env var
       if (!callerToken && env.DEEPSEEK_AUTH_TOKEN && env.DEEPSEEK_AUTH_TOKEN.length > 20) {
-        callerToken = env.DEEPSEEK_AUTH_TOKEN;
+        callerToken = env.DEEPSEEK_AUTH_TOKEN.trim();
+        if (!callerToken.startsWith("Bearer ")) {
+          callerToken = `Bearer ${callerToken}`;
+        }
       }
 
       if (!callerToken) {
