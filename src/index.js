@@ -620,7 +620,7 @@ function renderSetupHtml(origin) {
       padding: 6px;
       margin-bottom: 24px;
       background: #fafafa;
-      gap: 4px;
+      gap: 3px;
     }
     .step-nav-btn {
       flex: 1;
@@ -628,11 +628,11 @@ function renderSetupHtml(origin) {
       align-items: center;
       justify-content: center;
       gap: 6px;
-      padding: 9px 8px;
+      padding: 8px 6px;
       background: transparent;
       border: 1px solid transparent;
       border-radius: 6px;
-      font-size: 12.5px;
+      font-size: 12px;
       font-weight: 600;
       color: var(--text-muted);
       cursor: pointer;
@@ -661,12 +661,12 @@ function renderSetupHtml(origin) {
       color: #000000;
     }
     .step-line {
-      width: 8px;
+      width: 6px;
       height: 1px;
       background: var(--border);
       flex-shrink: 0;
     }
-    @media (max-width: 580px) {
+    @media (max-width: 640px) {
       .step-nav-text {
         display: none;
       }
@@ -709,19 +709,15 @@ function renderSetupHtml(origin) {
       margin-bottom: 20px;
     }
 
-    /* Mandatory GitHub Star Prerequisite */
+    /* GitHub Star Card (Step 1) */
     .star-gate-card {
       border: 1px solid #111111;
       border-radius: 8px;
-      padding: 20px;
+      padding: 22px;
       background: #fafafa;
-      margin-bottom: 20px;
+      margin-top: 10px;
+      margin-bottom: 16px;
       transition: all 0.2s ease;
-    }
-    .star-gate-card.completed {
-      border-color: var(--border);
-      background: #ffffff;
-      padding: 14px 18px;
     }
     .star-gate-badge {
       display: inline-block;
@@ -729,7 +725,7 @@ function renderSetupHtml(origin) {
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.6px;
-      padding: 2px 7px;
+      padding: 3px 8px;
       background: #000000;
       color: #ffffff;
       border-radius: 3px;
@@ -739,51 +735,21 @@ function renderSetupHtml(origin) {
       color: #000000;
       border: 1px solid #111111;
     }
-    .star-gate-title {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 6px;
-    }
-    .star-gate-desc {
-      font-size: 13px;
-      color: var(--text-muted);
-      line-height: 1.5;
-      margin-bottom: 12px;
-    }
     .star-gate-warning {
       background: #ffffff;
       border: 1px solid #111111;
       border-radius: 6px;
-      padding: 12px 14px;
-      font-size: 12.5px;
-      line-height: 1.5;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.55;
       color: #000000;
-      margin-bottom: 16px;
+      margin: 16px 0;
     }
     .star-gate-actions {
       display: flex;
       flex-wrap: wrap;
       align-items: center;
       gap: 10px;
-    }
-    .locked-card {
-      opacity: 0.45;
-      pointer-events: none;
-      user-select: none;
-      filter: grayscale(1);
-      transition: opacity 0.25s ease, filter 0.25s ease;
-    }
-    .star-lock-notice {
-      text-align: center;
-      padding: 11px 14px;
-      font-size: 12.5px;
-      font-weight: 600;
-      color: #000000;
-      background: #f4f4f4;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      margin-bottom: 18px;
     }
 
     /* Hero Action Card (Step 1) */
@@ -1098,69 +1064,91 @@ function renderSetupHtml(origin) {
     <!-- Stepper Header -->
     <div class="stepper-nav">
       <button class="step-nav-btn active" id="nav-step-1" onclick="goToStep(1)">
-        <span class="step-circle">1</span> <span class="step-nav-text">Add Bookmark</span>
+        <span class="step-circle">1</span> <span class="step-nav-text">Star Repo</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-2" onclick="goToStep(2)">
-        <span class="step-circle">2</span> <span class="step-nav-text">Get Key</span>
+        <span class="step-circle">2</span> <span class="step-nav-text">Add Bookmark</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-3" onclick="goToStep(3)">
-        <span class="step-circle">3</span> <span class="step-nav-text">Verify Key</span>
+        <span class="step-circle">3</span> <span class="step-nav-text">Get Key</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-4" onclick="goToStep(4)">
-        <span class="step-circle">4</span> <span class="step-nav-text">Connect App</span>
+        <span class="step-circle">4</span> <span class="step-nav-text">Verify Key</span>
+      </button>
+      <div class="step-line"></div>
+      <button class="step-nav-btn" id="nav-step-5" onclick="goToStep(5)">
+        <span class="step-circle">5</span> <span class="step-nav-text">Connect App</span>
       </button>
     </div>
 
-    <!-- STEP 1: Add Bookmark -->
+    <!-- STEP 1: Star Repo on GitHub -->
     <div id="step-panel-1" class="step-panel card">
+      <div class="card-title">
+        <span class="step-badge">1</span>
+        <span>Star the Project on GitHub</span>
+      </div>
+      <p class="card-desc">
+        This proxy is 100% free and open-source. Starring the project repository on GitHub is mandatory before accessing the setup.
+      </p>
 
-      <!-- Mandatory GitHub Star Prerequisite Card -->
-      <div id="star-gate-card" class="star-gate-card">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-          <span id="star-gate-badge" class="star-gate-badge">Mandatory Prerequisite</span>
-          <span id="star-gate-step-text" style="font-size: 11.5px; font-weight: 600; color: var(--text-muted);">Step 0 of 4</span>
+      <div class="star-gate-card" id="star-gate-card">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <span class="star-gate-badge">Mandatory Requirement</span>
+          <span style="font-size: 11.5px; font-weight: 600; color: var(--text-muted);">Step 1 of 5</span>
         </div>
-        <div class="star-gate-title">Star the Project on GitHub</div>
-        <p class="star-gate-desc">
-          This proxy is completely free and open-source. To keep it maintained and active, starring the project repository on GitHub is mandatory before you can unlock the Key Grabber.
+
+        <div style="font-size: 15px; font-weight: 700; color: #000000; margin-bottom: 6px;">
+          Support This Free Tool
+        </div>
+        <p style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px;">
+          Starring on GitHub helps keep this project active, maintained against DeepSeek web updates, and free for the community.
         </p>
 
         <div class="star-gate-warning">
-          <strong>Important Instructions:</strong>
-          <div style="margin-top: 6px; line-height: 1.55;">
-            1. Click <strong>Star on GitHub</strong> below to open the repository in a new tab.<br>
-            2. On GitHub, click the <strong>Star</strong> button at the top right of the page.<br>
-            3. <strong>Do NOT download, clone, or install anything:</strong> You do NOT need to run any code on your computer. Everything runs entirely in the cloud.<br>
-            4. Return to this page and click <strong>I Have Starred the Repository</strong> to unlock setup.
+          <strong>Important Instructions (Please Read):</strong>
+          <div style="margin-top: 8px; line-height: 1.6;">
+            1. Click <strong>Star on GitHub</strong> below to open the official repository in a new tab.<br>
+            2. On GitHub, click the <strong>Star</strong> button near the top right of the page.<br>
+            3. <strong>Do NOT download, clone, or install anything:</strong> You do NOT need to run any code or commands on your computer. This proxy runs 100% in the cloud for you.<br>
+            4. Come back to this tab and click <strong>I Have Starred: Continue to Step 2</strong> to proceed.
           </div>
         </div>
 
-        <div class="star-gate-actions">
+        <div class="star-gate-actions" id="star-actions-container">
           <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" class="btn-primary" onclick="markGithubStarOpened()">
             Star on GitHub
           </a>
-          <button id="btn-confirm-star" class="btn-secondary" onclick="confirmGithubStar()">
-            I Have Starred the Repository
+          <button id="btn-confirm-star" class="btn-secondary" onclick="confirmGithubStarAndAdvance()">
+            I Have Starred: Continue to Step 2 →
           </button>
         </div>
       </div>
 
-      <div id="star-lock-notice" class="star-lock-notice">
-        Locked: Star the GitHub repository above and click "I Have Starred the Repository" to unlock the Key Grabber below.
+      <div id="star-already-completed" style="display: none; padding: 14px 18px; border: 1px solid var(--border); border-radius: 6px; background: #fafafa; margin-top: 14px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="star-gate-badge completed-badge">Completed</span>
+            <span style="font-size: 13px; font-weight: 600; color: #000000;">GitHub Repository Starred</span>
+          </div>
+          <button class="btn-primary" onclick="goToStep(2)">Proceed to Step 2: Add Bookmark →</button>
+        </div>
       </div>
+    </div>
 
+    <!-- STEP 2: Add Bookmark -->
+    <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
-        <span class="step-badge">1</span>
+        <span class="step-badge">2</span>
         <span>Add Key Grabber to Bookmarks</span>
       </div>
       <p class="card-desc">Drag this button up to your browser's Bookmarks bar. This will let you grab your DeepSeek key in 1 click whenever you need it:</p>
 
-      <div id="bookmarklet-action-card" class="hero-action-card locked-card">
+      <div id="bookmarklet-action-card" class="hero-action-card">
         <div class="hero-action-body">
-          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="if(!hasStarredRepo()){showToast('Please star the GitHub repository first to unlock setup.');return false;}showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
             <span>DeepSeek Key Grabber</span>
           </a>
           <div class="drag-hint">Click and drag this button up into your bookmarks bar</div>
@@ -1172,15 +1160,15 @@ function renderSetupHtml(origin) {
       </div>
 
       <div class="wizard-nav">
-        <div></div>
-        <button class="btn-primary" onclick="goToStep(2)">Next: Get Key from DeepSeek →</button>
+        <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
+        <button class="btn-primary" onclick="goToStep(3)">Next: Get Key from DeepSeek →</button>
       </div>
     </div>
 
-    <!-- STEP 2: Get Key from DeepSeek -->
-    <div id="step-panel-2" class="step-panel card" style="display: none;">
+    <!-- STEP 3: Get Key from DeepSeek -->
+    <div id="step-panel-3" class="step-panel card" style="display: none;">
       <div class="card-title">
-        <span class="step-badge">2</span>
+        <span class="step-badge">3</span>
         <span>Get Your Key from DeepSeek</span>
       </div>
       <p class="card-desc">Follow these 3 simple steps to copy your key directly from your browser session:</p>
@@ -1223,19 +1211,19 @@ function renderSetupHtml(origin) {
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
-        <button class="btn-primary" onclick="goToStep(3)">Next: Verify Key →</button>
+        <button class="btn-secondary" onclick="goToStep(2)">← Back to Step 2</button>
+        <button class="btn-primary" onclick="goToStep(4)">Next: Verify Key →</button>
       </div>
 
       <div style="text-align: center; margin-top: 14px;">
-        <button class="btn-text" onclick="goToStep(4)" style="font-size: 12px; color: var(--text-subtle);">Already have your key? Skip to Step 4 →</button>
+        <button class="btn-text" onclick="goToStep(5)" style="font-size: 12px; color: var(--text-subtle);">Already have your key? Skip to Step 5 →</button>
       </div>
     </div>
 
-    <!-- STEP 3: Verify Token Panel -->
-    <div id="step-panel-3" class="step-panel card" style="display: none;">
+    <!-- STEP 4: Verify Token Panel -->
+    <div id="step-panel-4" class="step-panel card" style="display: none;">
       <div class="card-title">
-        <span class="step-badge">3</span>
+        <span class="step-badge">4</span>
         <span>Verify Your API Key (Optional)</span>
       </div>
       <p class="card-desc">Paste your key below to test and confirm that it works with the proxy:</p>
@@ -1250,15 +1238,15 @@ function renderSetupHtml(origin) {
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(2)">← Back to Step 2</button>
-        <button class="btn-primary" onclick="goToStep(4)">Next: Connect to App →</button>
+        <button class="btn-secondary" onclick="goToStep(3)">← Back to Step 3</button>
+        <button class="btn-primary" onclick="goToStep(5)">Next: Connect to App →</button>
       </div>
     </div>
 
-    <!-- STEP 4: Connect to App Panel -->
-    <div id="step-panel-4" class="step-panel card" style="display: none;">
+    <!-- STEP 5: Connect to App Panel -->
+    <div id="step-panel-5" class="step-panel card" style="display: none;">
       <div class="card-title">
-        <span class="step-badge">4</span>
+        <span class="step-badge">5</span>
         <span>Connect to Your AI App</span>
       </div>
       <p class="card-desc">Enter these 3 values into your IDE, extension, or OpenAI-compatible client:</p>
@@ -1277,7 +1265,7 @@ function renderSetupHtml(origin) {
           <span id="api-key-display" style="font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; color: var(--text-muted);">
             (Verified key will appear here, or paste from clipboard)
           </span>
-          <button class="btn-copy" id="btn-copy-api-key" onclick="copyTokenStep4()">Copy API Key</button>
+          <button class="btn-copy" id="btn-copy-api-key" onclick="copyTokenStep5()">Copy API Key</button>
         </div>
       </div>
 
@@ -1342,8 +1330,8 @@ for chunk in response:
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(3)">← Back to Verify Key</button>
-        <button class="btn-primary" onclick="goToStep(1)">Start Over</button>
+        <button class="btn-secondary" onclick="goToStep(4)">← Back to Verify Key</button>
+        <button class="btn-primary" onclick="goToStep(2)">Start Over</button>
       </div>
     </div>
 
@@ -1407,7 +1395,7 @@ npx wrangler deploy</code></pre>
       return s;
     }
 
-    function updateApiKeyStep4(cleanKey) {
+    function updateApiKeyStep5(cleanKey) {
       savedVerifiedToken = cleanKey;
       const disp = document.getElementById('api-key-display');
       if (disp) {
@@ -1426,7 +1414,7 @@ npx wrangler deploy</code></pre>
       testInput.addEventListener('input', function() {
         const clean = cleanRawToken(this.value);
         if (clean.length > 20) {
-          updateApiKeyStep4(clean);
+          updateApiKeyStep5(clean);
         }
       });
     }
@@ -1436,49 +1424,34 @@ npx wrangler deploy</code></pre>
     }
 
     function markGithubStarOpened() {
-      showToast('Opening GitHub... Click Star at top right, then click I Have Starred below.');
+      showToast('Opening GitHub... Click Star at top right, then return here.');
     }
 
-    function confirmGithubStar() {
+    function confirmGithubStarAndAdvance() {
       localStorage.setItem('deepseek_proxy_has_starred', 'true');
-      applyStarUnlockState();
-      showToast('GitHub star confirmed! Setup is now unlocked.');
+      showToast('GitHub star confirmed! Proceeding to Step 2.');
+      renderStarStepStatus();
+      goToStep(2);
     }
 
-    function applyStarUnlockState() {
+    function renderStarStepStatus() {
       const isStarred = hasStarredRepo();
       const card = document.getElementById('star-gate-card');
-      const lockNotice = document.getElementById('star-lock-notice');
-      const bmCard = document.getElementById('bookmarklet-action-card');
+      const completedNotice = document.getElementById('star-already-completed');
 
       if (isStarred) {
-        if (lockNotice) lockNotice.style.display = 'none';
-        if (bmCard) bmCard.classList.remove('locked-card');
-        if (card) {
-          card.classList.add('completed');
-          card.innerHTML = \`
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span class="star-gate-badge completed-badge">Completed</span>
-                <span style="font-size: 13px; font-weight: 600; color: #000000;">GitHub Repository Starred</span>
-              </div>
-              <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" style="font-size: 12px; color: #666666; text-decoration: underline;">
-                View on GitHub
-              </a>
-            </div>
-          \`;
-        }
+        if (completedNotice) completedNotice.style.display = 'block';
+        if (card) card.style.display = 'none';
       } else {
-        if (lockNotice) lockNotice.style.display = 'block';
-        if (bmCard) bmCard.classList.add('locked-card');
+        if (completedNotice) completedNotice.style.display = 'none';
+        if (card) card.style.display = 'block';
       }
     }
 
     function goToStep(step) {
       if (step > 1 && !hasStarredRepo()) {
         showToast('Please star the GitHub repository first to continue.');
-        const card = document.getElementById('star-gate-card');
-        if (card) card.scrollIntoView({ behavior: 'smooth' });
+        goToStep(1);
         return;
       }
 
@@ -1513,13 +1486,13 @@ npx wrangler deploy</code></pre>
       }
     }
 
-    function copyTokenStep4() {
+    function copyTokenStep5() {
       const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
         showToast('API Key copied to clipboard!');
       } else {
-        showToast('Please complete Step 2 or verify your key in Step 3.');
+        showToast('Please complete Step 3 or verify your key in Step 4.');
       }
     }
 
@@ -1569,14 +1542,14 @@ npx wrangler deploy</code></pre>
 
         const data = await resp.json();
         if (resp.ok && data.choices && data.choices[0]) {
-          updateApiKeyStep4(cleanKey);
-          showToast('API Key verified and saved to Step 4!');
+          updateApiKeyStep5(cleanKey);
+          showToast('API Key verified and saved to Step 5!');
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
           resBox.innerHTML = \`
             <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">Key is active and working!</div>
-            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully and your key is saved for Step 4.</div>
+            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully and your key is saved for Step 5.</div>
             <div>
               <button class="btn-copy" onclick="copyVerifiedToken()">Copy Key</button>
             </div>
@@ -1601,7 +1574,12 @@ npx wrangler deploy</code></pre>
       }
     }
 
-    applyStarUnlockState();
+    renderStarStepStatus();
+    if (hasStarredRepo()) {
+      goToStep(2);
+    } else {
+      goToStep(1);
+    }
   </script>
 </body>
 </html>`;
