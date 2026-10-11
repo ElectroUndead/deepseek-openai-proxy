@@ -546,7 +546,7 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 // -----------------------------------------------------------------------------
 function renderSetupHtml(origin) {
   const baseUrl = `${origin}/v1`;
-  const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{t=JSON.parse(raw).value||raw;}catch(e){t=raw;}}if(!t)return alert('No active DeepSeek session found! Please log in on chat.deepseek.com first.');if(!t.startsWith('Bearer '))t='Bearer '+t;navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek Token to clipboard!\\nNow paste it in Cursor as your API Key.');}catch(e){alert('Error copying token: '+e);}})();`;
+  const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{t=JSON.parse(raw).value||raw;}catch(e){t=raw;}}if(!t)return alert('No active DeepSeek session found! Please log in on chat.deepseek.com first.');while(t.startsWith('Bearer '))t=t.substring(7).trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();navigator.clipboard.writeText(t);alert('✓ Copied DeepSeek API Key to clipboard! (Without Bearer)');}catch(e){alert('Error copying key: '+e);}})();`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -764,6 +764,8 @@ function renderSetupHtml(origin) {
       border: 1px solid #000000;
       border-radius: 4px;
       cursor: pointer;
+      flex-shrink: 0;
+      margin-left: 8px;
     }
     .btn-copy:hover {
       background: #262626;
@@ -906,11 +908,11 @@ function renderSetupHtml(origin) {
     <!-- Stepper Header -->
     <div class="stepper-nav">
       <button class="step-nav-btn active" id="nav-step-1" onclick="goToStep(1)">
-        <span class="step-circle">1</span> Get Token
+        <span class="step-circle">1</span> Get API Key
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-2" onclick="goToStep(2)">
-        <span class="step-circle">2</span> Verify Token
+        <span class="step-circle">2</span> Verify Key
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-3" onclick="goToStep(3)">
@@ -922,18 +924,18 @@ function renderSetupHtml(origin) {
     <div id="step-panel-1" class="step-panel card">
       <div class="card-title">
         <span class="step-badge">1</span>
-        <span>Get Your DeepSeek Token</span>
+        <span>Get Your DeepSeek API Key</span>
       </div>
-      <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this button to your browser bookmarks bar to extract your free token in 1 click:</p>
+      <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this button to your browser bookmarks bar to extract your free key in 1 click (no "Bearer" prefix):</p>
 
       <div class="bookmarklet-box">
         <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="alert('Drag this button to your browser Bookmarks Bar, then click it on chat.deepseek.com'); return false;">
-          ⭐ DeepSeek Token Grabber
+          ⭐ DeepSeek Key Grabber
         </a>
         <ol class="instructions-list">
           <li>Drag the black button above to your browser's Bookmarks bar.</li>
           <li>Open <a href="https://chat.deepseek.com" target="_blank" style="color: #000000; font-weight: 600;">chat.deepseek.com</a> in your browser and log in.</li>
-          <li>Click the bookmark on the page. Your token is automatically copied to your clipboard!</li>
+          <li>Click the bookmark on the page. Your clean API key is automatically copied to your clipboard!</li>
         </ol>
 
         <div class="tip-box">
@@ -945,7 +947,7 @@ function renderSetupHtml(origin) {
         <div></div>
         <div style="display: flex; gap: 14px; align-items: center;">
           <button class="btn-text" onclick="goToStep(3)">Skip to App Setup →</button>
-          <button class="btn-primary" onclick="goToStep(2)">Next: Verify Token →</button>
+          <button class="btn-primary" onclick="goToStep(2)">Next: Verify Key →</button>
         </div>
       </div>
     </div>
@@ -954,15 +956,15 @@ function renderSetupHtml(origin) {
     <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Verify Your Token</span>
+        <span>Verify Your API Key</span>
       </div>
-      <p class="card-desc">Make sure your token is active and working before configuring your AI tool:</p>
+      <p class="card-desc">Make sure your key is active and working before configuring your AI tool (any "Bearer " prefix is stripped automatically):</p>
 
       <div>
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your Token Below</label>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your API Key Below</label>
         <div class="input-row">
-          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your token here (Ctrl + V)..." />
-          <button id="btn-test-token" class="btn-primary" onclick="runTokenTest()">Verify Token</button>
+          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your key here (Ctrl + V)..." />
+          <button id="btn-test-token" class="btn-primary" onclick="runTokenTest()">Verify Key</button>
         </div>
         <div id="test-token-result" style="display: none; padding: 14px; border-radius: 6px; margin-top: 12px;"></div>
       </div>
@@ -990,10 +992,12 @@ function renderSetupHtml(origin) {
       </div>
 
       <div style="margin-top: 14px;">
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key</label>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key (Without "Bearer")</label>
         <div class="copy-row">
-          <span style="color: var(--text-muted);">Paste the token from Step 1</span>
-          <button class="btn-copy" onclick="copyTokenStep3()">Copy Token</button>
+          <span id="api-key-display" style="font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; color: var(--text-muted);">
+            (Verified key will appear here, or paste from Step 1)
+          </span>
+          <button class="btn-copy" id="btn-copy-api-key" onclick="copyTokenStep3()">Copy API Key</button>
         </div>
       </div>
 
@@ -1020,7 +1024,7 @@ function renderSetupHtml(origin) {
 2. Go to "Models" -> "OpenAI".
 3. Turn ON "Override OpenAI Base URL" and enter:
    ${baseUrl}
-4. In "OpenAI API Key", paste your token.
+4. In "OpenAI API Key", paste your API key (without Bearer).
 5. In model list, add: deepseek-reasoner (or deepseek-chat)</code></pre>
       </div>
 
@@ -1028,7 +1032,7 @@ function renderSetupHtml(origin) {
         <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
 Base URL: ${baseUrl}
-API Key: Paste your DeepSeek token
+API Key: Paste your API key (without Bearer)
 Model ID: deepseek-reasoner</code></pre>
       </div>
 
@@ -1036,16 +1040,16 @@ Model ID: deepseek-reasoner</code></pre>
         <pre><code>In NextChat, Chatbox, or LibreChat:
 API Provider: OpenAI
 Base URL (API Host): ${baseUrl}
-API Key: Paste your DeepSeek token
+API Key: Paste your API key (without Bearer)
 Model: deepseek-reasoner</code></pre>
       </div>
 
       <div id="tab-ide-python" class="tab-content">
-        <pre><code>from openai import OpenAI
+        <pre><code id="py-sdk-code">from openai import OpenAI
 
 client = OpenAI(
     base_url="${baseUrl}",
-    api_key="PASTE_YOUR_DEEPSEEK_TOKEN_HERE"
+    api_key="PASTE_YOUR_API_KEY_HERE"
 )
 
 response = client.chat.completions.create(
@@ -1058,7 +1062,7 @@ for chunk in response:
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(2)">← Back to Verify Token</button>
+        <button class="btn-secondary" onclick="goToStep(2)">← Back to Verify Key</button>
         <button class="btn-primary" onclick="goToStep(1)">Start Over</button>
       </div>
     </div>
@@ -1086,6 +1090,52 @@ npx wrangler deploy</code></pre>
     let currentStep = 1;
     let savedVerifiedToken = '';
 
+    function cleanRawToken(str) {
+      let s = (str || '').trim();
+      if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+        s = s.slice(1, -1).trim();
+      }
+      while (s.toLowerCase().startsWith('bearer ')) {
+        s = s.substring(7).trim();
+      }
+      if (s.startsWith('{')) {
+        try {
+          const p = JSON.parse(s);
+          if (p.token) {
+            s = p.token.trim();
+            while (s.toLowerCase().startsWith('bearer ')) {
+              s = s.substring(7).trim();
+            }
+          }
+        } catch(e) {}
+      }
+      return s;
+    }
+
+    function updateApiKeyStep3(cleanKey) {
+      savedVerifiedToken = cleanKey;
+      const disp = document.getElementById('api-key-display');
+      if (disp) {
+        disp.textContent = cleanKey;
+        disp.style.color = '#000000';
+        disp.title = cleanKey;
+      }
+      const pyCode = document.getElementById('py-sdk-code');
+      if (pyCode) {
+        pyCode.textContent = 'from openai import OpenAI\\n\\nclient = OpenAI(\\n    base_url="' + "${baseUrl}" + '",\\n    api_key="' + cleanKey + '"\\n)\\n\\nresponse = client.chat.completions.create(\\n    model="deepseek-reasoner",\\n    messages=[{"role": "user", "content": "Hello!"}],\\n    stream=True\\n)\\nfor chunk in response:\\n    print(chunk.choices[0].delta.content or "", end="")';
+      }
+    }
+
+    const testInput = document.getElementById('test-token-input');
+    if (testInput) {
+      testInput.addEventListener('input', function() {
+        const clean = cleanRawToken(this.value);
+        if (clean.length > 20) {
+          updateApiKeyStep3(clean);
+        }
+      });
+    }
+
     function goToStep(step) {
       currentStep = step;
       document.querySelectorAll('.step-panel').forEach(p => p.style.display = 'none');
@@ -1108,21 +1158,22 @@ npx wrangler deploy</code></pre>
     }
 
     function copyVerifiedToken() {
-      const token = savedVerifiedToken || document.getElementById('test-token-input').value.trim();
+      const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
       if (token) {
         navigator.clipboard.writeText(token);
-        alert('✓ Token copied to clipboard!');
+        alert('✓ API Key copied to clipboard! (Without Bearer)');
       } else {
-        alert('No token to copy yet. Paste and verify your token first!');
+        alert('No key to copy yet. Paste and verify your key first!');
       }
     }
 
     function copyTokenStep3() {
-      if (savedVerifiedToken) {
-        navigator.clipboard.writeText(savedVerifiedToken);
-        alert('✓ Token copied to clipboard!');
+      const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
+      if (token) {
+        navigator.clipboard.writeText(token);
+        alert('✓ API Key copied to clipboard! (Without Bearer)');
       } else {
-        alert('Please paste the token you extracted from Step 1 into your app.');
+        alert('Please get your key from Step 1 or enter it in Step 2.');
       }
     }
 
@@ -1140,8 +1191,13 @@ npx wrangler deploy</code></pre>
       const raw = input.value.trim();
 
       if (!raw) {
-        alert('Please paste your token in the box first!');
+        alert('Please paste your key in the box first!');
         return;
+      }
+
+      const cleanKey = cleanRawToken(raw);
+      if (cleanKey !== raw) {
+        input.value = cleanKey;
       }
 
       btn.disabled = true;
@@ -1150,15 +1206,14 @@ npx wrangler deploy</code></pre>
       resBox.style.background = '#fafafa';
       resBox.style.border = '1px solid #111111';
       resBox.style.color = '#000000';
-      resBox.innerHTML = '⏳ Verifying token with DeepSeek and solving PoW challenge...';
+      resBox.innerHTML = '⏳ Verifying key with DeepSeek and solving PoW challenge...';
 
       try {
-        const cleanToken = raw.startsWith('Bearer ') ? raw : 'Bearer ' + raw;
         const resp = await fetch('/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': cleanToken
+            'Authorization': 'Bearer ' + cleanKey
           },
           body: JSON.stringify({
             model: 'deepseek-chat',
@@ -1168,14 +1223,17 @@ npx wrangler deploy</code></pre>
 
         const data = await resp.json();
         if (resp.ok && data.choices && data.choices[0]) {
-          savedVerifiedToken = cleanToken;
+          updateApiKeyStep3(cleanKey);
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
           resBox.innerHTML = \`
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">✓ Token is active and working!</div>
-            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully. Click below to copy your token:</div>
-            <button class="btn-copy" onclick="copyVerifiedToken()">📋 Copy Token</button>
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">✓ Key is active and working!</div>
+            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully. Saved to Step 3 (Without "Bearer").</div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-copy" onclick="copyVerifiedToken()">📋 Copy Key</button>
+              <button class="btn-primary" onclick="goToStep(3)">Continue to Step 3 →</button>
+            </div>
           \`;
         } else {
           resBox.style.background = '#fafafa';
@@ -1191,7 +1249,7 @@ npx wrangler deploy</code></pre>
         resBox.innerHTML = '<strong>❌ Network error:</strong> ' + err.message;
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Verify Token';
+        btn.textContent = 'Verify Key';
       }
     }
   </script>
