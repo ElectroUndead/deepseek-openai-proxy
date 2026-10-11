@@ -584,7 +584,7 @@ function renderSetupHtml(origin) {
       max-width: 680px;
     }
     .header {
-      margin-bottom: 32px;
+      margin-bottom: 28px;
       text-align: left;
     }
     .badge {
@@ -610,6 +610,61 @@ function renderSetupHtml(origin) {
       font-size: 14px;
       color: var(--text-muted);
     }
+
+    /* Stepper Navigation */
+    .stepper-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 6px;
+      margin-bottom: 24px;
+      background: #fafafa;
+      gap: 4px;
+    }
+    .step-nav-btn {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .step-nav-btn.active {
+      background: #000000;
+      color: #ffffff;
+    }
+    .step-circle {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #e5e5e5;
+      color: #000000;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .step-nav-btn.active .step-circle {
+      background: #ffffff;
+      color: #000000;
+    }
+    .step-line {
+      width: 14px;
+      height: 1px;
+      background: var(--border);
+    }
+
     .card {
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -618,17 +673,17 @@ function renderSetupHtml(origin) {
       margin-bottom: 24px;
     }
     .card-title {
-      font-size: 17px;
+      font-size: 18px;
       font-weight: 700;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       color: var(--text);
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
     }
     .step-badge {
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
       border-radius: 50%;
       background: #000000;
       color: #ffffff;
@@ -641,13 +696,14 @@ function renderSetupHtml(origin) {
     .card-desc {
       font-size: 13.5px;
       color: var(--text-muted);
-      margin-bottom: 16px;
+      margin-bottom: 20px;
     }
+
     /* Bookmarklet */
     .bookmarklet-box {
       border: 1px dashed var(--border-dark);
       border-radius: 6px;
-      padding: 16px;
+      padding: 18px;
       margin: 16px 0;
       background: #fafafa;
     }
@@ -656,12 +712,12 @@ function renderSetupHtml(origin) {
       background: #000000;
       color: #ffffff;
       text-decoration: none;
-      padding: 9px 18px;
+      padding: 10px 20px;
       border-radius: 4px;
       font-size: 13px;
       font-weight: 600;
       cursor: grab;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
     }
     .bookmarklet-btn:hover {
       background: #262626;
@@ -670,11 +726,23 @@ function renderSetupHtml(origin) {
       font-size: 13px;
       color: var(--text-muted);
       padding-left: 20px;
+      line-height: 1.6;
     }
     .instructions-list li {
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
-    /* Copy Row */
+    .tip-box {
+      background: #fafafa;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-top: 14px;
+      font-size: 12.5px;
+      color: var(--text);
+      line-height: 1.45;
+    }
+
+    /* Copy Rows */
     .copy-row {
       display: flex;
       align-items: center;
@@ -683,7 +751,7 @@ function renderSetupHtml(origin) {
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 10px 14px;
-      margin: 10px 0;
+      margin: 8px 0;
       font-family: var(--font-mono);
       font-size: 13px;
     }
@@ -700,12 +768,90 @@ function renderSetupHtml(origin) {
     .btn-copy:hover {
       background: #262626;
     }
+
+    /* Form & Input Rows */
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin: 10px 0;
+    }
+    .input-field {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid var(--border-dark);
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      background: #ffffff;
+      color: #000000;
+    }
+    .input-field:focus {
+      outline: 2px solid #000000;
+    }
+    kbd {
+      display: inline-block;
+      padding: 2px 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: #ffffff;
+      border: 1px solid #111111;
+      border-radius: 3px;
+    }
+
+    /* Wizard Action Navigation */
+    .wizard-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+    }
+    .btn-primary {
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #000000;
+      color: #ffffff;
+      border: 1px solid #000000;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-primary:hover {
+      background: #262626;
+    }
+    .btn-secondary {
+      padding: 10px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      background: #ffffff;
+      color: #000000;
+      border: 1px solid #111111;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-secondary:hover {
+      background: #f5f5f5;
+    }
+    .btn-text {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+    .btn-text:hover {
+      color: #000000;
+    }
+
     /* Tabs */
     .tabs {
       display: flex;
       gap: 6px;
       border-bottom: 1px solid var(--border);
-      margin: 16px 0 12px 0;
+      margin: 18px 0 12px 0;
     }
     .tab-item {
       padding: 6px 12px;
@@ -739,50 +885,6 @@ function renderSetupHtml(origin) {
       margin: 10px 0;
       line-height: 1.45;
     }
-    .notice-box {
-      border: 1px solid #111111;
-      background: #fafafa;
-      border-radius: 6px;
-      padding: 14px 16px;
-      margin-bottom: 20px;
-      font-size: 13.5px;
-      line-height: 1.5;
-    }
-    .guide-action-box {
-      background: #f9f9f9;
-      border: 1px dashed #777777;
-      border-radius: 6px;
-      padding: 12px 14px;
-      margin: 6px 0 14px 0;
-      font-size: 13px;
-    }
-    .input-row {
-      display: flex;
-      gap: 8px;
-      margin: 10px 0;
-    }
-    .input-field {
-      flex: 1;
-      padding: 10px 14px;
-      border: 1px solid var(--border-dark);
-      border-radius: 4px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-      background: #ffffff;
-      color: #000000;
-    }
-    .input-field:focus {
-      outline: 2px solid #000000;
-    }
-    kbd {
-      display: inline-block;
-      padding: 2px 6px;
-      font-family: var(--font-mono);
-      font-size: 11px;
-      background: #ffffff;
-      border: 1px solid #111111;
-      border-radius: 3px;
-    }
     details summary {
       cursor: pointer;
       font-size: 13px;
@@ -798,16 +900,31 @@ function renderSetupHtml(origin) {
     <div class="header">
       <div class="badge">Zero-Config Free Proxy</div>
       <h1>DeepSeek OpenAI Proxy</h1>
-      <p class="subtitle">Connect DeepSeek R1 & V3 directly into Cursor, VS Code, or Cline in 30 seconds. No coding, no terminal, and no payment required.</p>
+      <p class="subtitle">Connect DeepSeek R1 & V3 directly into Cursor, VS Code, Cline, or any OpenAI client. No coding, no terminal, and no payment required.</p>
     </div>
 
-    <!-- STEP 1: Grab Token -->
-    <div class="card">
+    <!-- Stepper Header -->
+    <div class="stepper-nav">
+      <button class="step-nav-btn active" id="nav-step-1" onclick="goToStep(1)">
+        <span class="step-circle">1</span> Get Token
+      </button>
+      <div class="step-line"></div>
+      <button class="step-nav-btn" id="nav-step-2" onclick="goToStep(2)">
+        <span class="step-circle">2</span> Verify Token
+      </button>
+      <div class="step-line"></div>
+      <button class="step-nav-btn" id="nav-step-3" onclick="goToStep(3)">
+        <span class="step-circle">3</span> Connect to App
+      </button>
+    </div>
+
+    <!-- STEP 1: Grab Token Panel -->
+    <div id="step-panel-1" class="step-panel card">
       <div class="card-title">
         <span class="step-badge">1</span>
-        <span>Get Your DeepSeek Token (1 Click)</span>
+        <span>Get Your DeepSeek Token</span>
       </div>
-      <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this button to your browser bookmarks bar to extract your free token:</p>
+      <p class="card-desc">DeepSeek web accounts don't need paid API keys. Drag this button to your browser bookmarks bar to extract your free token in 1 click:</p>
 
       <div class="bookmarklet-box">
         <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="alert('Drag this button to your browser Bookmarks Bar, then click it on chat.deepseek.com'); return false;">
@@ -818,37 +935,54 @@ function renderSetupHtml(origin) {
           <li>Open <a href="https://chat.deepseek.com" target="_blank" style="color: #000000; font-weight: 600;">chat.deepseek.com</a> in your browser and log in.</li>
           <li>Click the bookmark on the page. Your token is automatically copied to your clipboard!</li>
         </ol>
+
+        <div class="tip-box">
+          💡 <strong>Don't see your bookmarks bar?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to show it.
+        </div>
       </div>
 
-      <!-- Optional Token Tester on Webpage -->
-      <div style="margin-top: 18px; border-top: 1px solid var(--border); padding-top: 16px;">
-        <label style="font-size: 12px; font-weight: 700; text-transform: uppercase; color: var(--text);">
-          🔍 Optional: Test Your Token Here
-        </label>
-        <p style="font-size: 13px; color: var(--text-muted); margin: 4px 0 8px 0;">
-          Want to verify your token right now? Paste it below and click Verify:
-        </p>
-        <div class="input-row">
-          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your token here (Ctrl + V)..." />
-          <button id="btn-test-token" class="btn-copy" onclick="runTokenTest()">Verify Token</button>
+      <div class="wizard-nav">
+        <div></div>
+        <div style="display: flex; gap: 14px; align-items: center;">
+          <button class="btn-text" onclick="goToStep(3)">Skip to App Setup →</button>
+          <button class="btn-primary" onclick="goToStep(2)">Next: Verify Token →</button>
         </div>
-        <div id="test-token-result" style="display: none; padding: 12px 14px; border-radius: 4px; font-size: 13px; margin-top: 8px;"></div>
       </div>
     </div>
 
-    <!-- STEP 2: Configure in Cursor -->
-    <div class="card">
+    <!-- STEP 2: Verify Token Panel -->
+    <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Configure Inside Cursor Desktop App</span>
+        <span>Verify Your Token</span>
       </div>
-
-      <div class="notice-box">
-        <strong>⚠️ Note:</strong> Do not paste your token into this website. These 3 settings go inside your <strong>Cursor app</strong> on your computer (Cursor Settings ⚙️ → Models → OpenAI).
-      </div>
+      <p class="card-desc">Make sure your token is active and working before configuring your AI tool:</p>
 
       <div>
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. Override OpenAI Base URL</label>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your Token Below</label>
+        <div class="input-row">
+          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your token here (Ctrl + V)..." />
+          <button id="btn-test-token" class="btn-primary" onclick="runTokenTest()">Verify Token</button>
+        </div>
+        <div id="test-token-result" style="display: none; padding: 14px; border-radius: 6px; margin-top: 12px;"></div>
+      </div>
+
+      <div class="wizard-nav">
+        <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
+        <button class="btn-primary" onclick="goToStep(3)">Next: Connect to App →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3: Connect to App Panel -->
+    <div id="step-panel-3" class="step-panel card" style="display: none;">
+      <div class="card-title">
+        <span class="step-badge">3</span>
+        <span>Connect to Your AI App</span>
+      </div>
+      <p class="card-desc">Enter these 3 values into your IDE, extension, or OpenAI-compatible client:</p>
+
+      <div>
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. Base URL</label>
         <div class="copy-row">
           <span id="base-url-text">${baseUrl}</span>
           <button class="btn-copy" onclick="copyText('base-url-text')">Copy URL</button>
@@ -856,9 +990,10 @@ function renderSetupHtml(origin) {
       </div>
 
       <div style="margin-top: 14px;">
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. OpenAI API Key</label>
-        <div class="guide-action-box">
-          <strong>📋 Inside Cursor:</strong> Click the "OpenAI API Key" box and press <kbd>Ctrl</kbd> + <kbd>V</kbd> to paste the token from your clipboard.
+        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key</label>
+        <div class="copy-row">
+          <span style="color: var(--text-muted);">Paste the token from Step 1</span>
+          <button class="btn-copy" onclick="copyTokenStep3()">Copy Token</button>
         </div>
       </div>
 
@@ -868,29 +1003,41 @@ function renderSetupHtml(origin) {
           <span id="model-name-text">deepseek-reasoner</span>
           <button class="btn-copy" onclick="copyText('model-name-text')">Copy Model</button>
         </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+          Note: You can also use <code>deepseek-chat</code> for standard conversational mode without extended reasoning.
+        </div>
       </div>
 
       <div class="tabs">
         <div class="tab-item active" onclick="switchIdeTab('cursor')">Cursor Instructions</div>
-        <div class="tab-item" onclick="switchIdeTab('vscode')">VS Code / Cline Instructions</div>
+        <div class="tab-item" onclick="switchIdeTab('vscode')">VS Code / Cline</div>
+        <div class="tab-item" onclick="switchIdeTab('clients')">Other AI Apps</div>
         <div class="tab-item" onclick="switchIdeTab('python')">Python SDK</div>
       </div>
 
       <div id="tab-ide-cursor" class="tab-content active">
-        <pre><code>1. In Cursor, open Settings (gear icon in bottom left or top right).
+        <pre><code>1. Open Cursor Settings (gear icon).
 2. Go to "Models" -> "OpenAI".
 3. Turn ON "Override OpenAI Base URL" and enter:
    ${baseUrl}
-4. In "OpenAI API Key", press Ctrl + V to paste your token.
-5. In the model list, type: deepseek-reasoner (or deepseek-chat)</code></pre>
+4. In "OpenAI API Key", paste your token.
+5. In model list, add: deepseek-reasoner (or deepseek-chat)</code></pre>
       </div>
 
       <div id="tab-ide-vscode" class="tab-content">
         <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
 Base URL: ${baseUrl}
-API Key: Paste your DeepSeek token (Ctrl + V)
+API Key: Paste your DeepSeek token
 Model ID: deepseek-reasoner</code></pre>
+      </div>
+
+      <div id="tab-ide-clients" class="tab-content">
+        <pre><code>In NextChat, Chatbox, or LibreChat:
+API Provider: OpenAI
+Base URL (API Host): ${baseUrl}
+API Key: Paste your DeepSeek token
+Model: deepseek-reasoner</code></pre>
       </div>
 
       <div id="tab-ide-python" class="tab-content">
@@ -909,9 +1056,14 @@ response = client.chat.completions.create(
 for chunk in response:
     print(chunk.choices[0].delta.content or "", end="")</code></pre>
       </div>
+
+      <div class="wizard-nav">
+        <button class="btn-secondary" onclick="goToStep(2)">← Back to Verify Token</button>
+        <button class="btn-primary" onclick="goToStep(1)">Start Over</button>
+      </div>
     </div>
 
-    <!-- Optional Section for Developers -->
+    <!-- Optional Developer Section -->
     <div class="card">
       <details>
         <summary>⚙️ Want to host your own dedicated worker? (For Developers Only)</summary>
@@ -931,10 +1083,47 @@ npx wrangler deploy</code></pre>
   </div>
 
   <script>
+    let currentStep = 1;
+    let savedVerifiedToken = '';
+
+    function goToStep(step) {
+      currentStep = step;
+      document.querySelectorAll('.step-panel').forEach(p => p.style.display = 'none');
+      document.getElementById('step-panel-' + step).style.display = 'block';
+
+      document.querySelectorAll('.step-nav-btn').forEach((btn, idx) => {
+        if (idx + 1 === step) {
+          btn.classList.add('active');
+        } else {
+          btn.classList.remove('active');
+        }
+      });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     function copyText(elemId) {
       const text = document.getElementById(elemId).textContent;
       navigator.clipboard.writeText(text);
       alert('Copied to clipboard: ' + text);
+    }
+
+    function copyVerifiedToken() {
+      const token = savedVerifiedToken || document.getElementById('test-token-input').value.trim();
+      if (token) {
+        navigator.clipboard.writeText(token);
+        alert('✓ Token copied to clipboard!');
+      } else {
+        alert('No token to copy yet. Paste and verify your token first!');
+      }
+    }
+
+    function copyTokenStep3() {
+      if (savedVerifiedToken) {
+        navigator.clipboard.writeText(savedVerifiedToken);
+        alert('✓ Token copied to clipboard!');
+      } else {
+        alert('Please paste the token you extracted from Step 1 into your app.');
+      }
     }
 
     function switchIdeTab(ide) {
@@ -964,11 +1153,12 @@ npx wrangler deploy</code></pre>
       resBox.innerHTML = '⏳ Verifying token with DeepSeek and solving PoW challenge...';
 
       try {
+        const cleanToken = raw.startsWith('Bearer ') ? raw : 'Bearer ' + raw;
         const resp = await fetch('/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': raw.startsWith('Bearer ') ? raw : 'Bearer ' + raw
+            'Authorization': cleanToken
           },
           body: JSON.stringify({
             model: 'deepseek-chat',
@@ -978,10 +1168,15 @@ npx wrangler deploy</code></pre>
 
         const data = await resp.json();
         if (resp.ok && data.choices && data.choices[0]) {
-          resBox.style.background = '#000000';
-          resBox.style.border = '1px solid #000000';
-          resBox.style.color = '#ffffff';
-          resBox.innerHTML = '✓ <strong>Token is active and working!</strong><br><span style=\"color:#cccccc;\">DeepSeek replied successfully. Now open Cursor Settings ⚙️ and paste it into "OpenAI API Key".</span>';
+          savedVerifiedToken = cleanToken;
+          resBox.style.background = '#fafafa';
+          resBox.style.border = '1px solid #111111';
+          resBox.style.color = '#000000';
+          resBox.innerHTML = \`
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">✓ Token is active and working!</div>
+            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully. Click below to copy your token:</div>
+            <button class="btn-copy" onclick="copyVerifiedToken()">📋 Copy Token</button>
+          \`;
         } else {
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
