@@ -845,6 +845,11 @@ npx wrangler login
 # 3. Deploy in 1 command
 npx wrangler deploy</code></pre>
 
+        <div class="note-box" style="margin: 10px 0;">
+          <strong>Tip for GitHub Codespaces / Remote Terminals:</strong> If running in Codespaces, browser OAuth redirect to <code>localhost</code> may not reach the cloud VM. You can either forward port <code>8976</code> in the PORTS tab, or use an API token:<br>
+          <code>export CLOUDFLARE_API_TOKEN="your_token"</code> then run <code>npx wrangler deploy</code>.
+        </div>
+
         <p style="font-size: 13px; color: var(--text-muted); margin-top: 14px; margin-bottom: 6px;">Your pre-configured <code>wrangler.toml</code> with your token from Step 1:</p>
         <div class="copy-row">
           <span style="font-size: 12px; color: var(--text-muted);">wrangler.toml configuration</span>
