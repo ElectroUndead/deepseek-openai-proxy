@@ -47,14 +47,14 @@ function parseDSML(text) {
   if (!text) return null;
   const norm = text.replace(/｜/g, "|");
 
-  const callsMatch = norm.match(/<\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>([\s\S]*?)<\/\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>/i);
+  const callsMatch = norm.match(/<\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*(?:calls|tool_calls)[^>]*>|$)/i);
   if (!callsMatch) return null;
 
   const contentBefore = norm.substring(0, callsMatch.index).trim();
   const inner = callsMatch[1];
 
   const toolCalls = [];
-  const invokeRegex = /<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|+DSML\|+\s*invoke[^>]*>/gi;
+  const invokeRegex = /<\|+DSML\|+\s*invoke\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*invoke[^>]*>|$)/gi;
   let invMatch;
   let idx = 0;
 
@@ -63,7 +63,7 @@ function parseDSML(text) {
     const paramsBlock = invMatch[2];
 
     const params = {};
-    const paramRegex = /<\|+DSML\|+\s*parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|+DSML\|+\s*parameter[^>]*>/gi;
+    const paramRegex = /<\|+DSML\|+\s*parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)(?:<\/\|+DSML\|+\s*parameter[^>]*>|$)/gi;
     let pMatch;
     while ((pMatch = paramRegex.exec(paramsBlock)) !== null) {
       const pName = pMatch[1];
@@ -319,6 +319,38 @@ async function handleChatCompletion(body, token) {
       let buffer = "";
       let currentFragmentType = thinkingEnabled ? "THINK" : "RESPONSE";
       let accumulatedResponseText = "";
+      let pendingResponseBuffer = "";
+      let inToolCallBlock = false;
+
+      async function handleResponseChunk(text) {
+        if (!text) return;
+        accumulatedResponseText += text;
+
+        if (inToolCallBlock) {
+          return;
+        }
+
+        pendingResponseBuffer += text;
+
+        const tagMatch = pendingResponseBuffer.search(/<[|｜]/);
+        if (tagMatch !== -1) {
+          inToolCallBlock = true;
+          const beforeTag = pendingResponseBuffer.substring(0, tagMatch);
+          if (beforeTag) {
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", beforeTag);
+          }
+          pendingResponseBuffer = "";
+        } else if (pendingResponseBuffer.endsWith("<")) {
+          const safeText = pendingResponseBuffer.slice(0, -1);
+          if (safeText) {
+            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", safeText);
+          }
+          pendingResponseBuffer = "<";
+        } else {
+          await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", pendingResponseBuffer);
+          pendingResponseBuffer = "";
+        }
+      }
 
       try {
         const initialChunk = {
@@ -356,7 +388,7 @@ async function handleChatCompletion(body, token) {
                     if (currentFragmentType === "THINK") {
                       await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", initialContent);
                     } else {
-                      accumulatedResponseText += initialContent;
+                      await handleResponseChunk(initialContent);
                     }
                   }
                 }
@@ -368,7 +400,7 @@ async function handleChatCompletion(body, token) {
                     if (currentFragmentType === "THINK") {
                       await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", c);
                     } else {
-                      accumulatedResponseText += c;
+                      await handleResponseChunk(c);
                     }
                   }
                 }
@@ -377,15 +409,17 @@ async function handleChatCompletion(body, token) {
                   if (currentFragmentType === "THINK") {
                     await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "THINK", data.v);
                   } else {
-                    accumulatedResponseText += data.v;
-                    if (!accumulatedResponseText.includes("<|") && !accumulatedResponseText.includes("<｜")) {
-                      await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", data.v);
-                    }
+                    await handleResponseChunk(data.v);
                   }
                 }
               } catch (e) {}
             }
           }
+        }
+
+        if (!inToolCallBlock && pendingResponseBuffer) {
+          await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", pendingResponseBuffer);
+          pendingResponseBuffer = "";
         }
 
         const dsml = parseDSML(accumulatedResponseText);
@@ -407,8 +441,12 @@ async function handleChatCompletion(body, token) {
           };
           await writer.write(encoder.encode(`data: ${JSON.stringify(toolChunk)}\n\n`));
         } else {
-          if (accumulatedResponseText.includes("<|") || accumulatedResponseText.includes("<｜")) {
-            await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", accumulatedResponseText);
+          if (inToolCallBlock) {
+            const tagMatch = accumulatedResponseText.search(/<[|｜]/);
+            if (tagMatch !== -1) {
+              const remaining = accumulatedResponseText.substring(tagMatch);
+              await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", remaining);
+            }
           }
 
           const finishChunk = {
