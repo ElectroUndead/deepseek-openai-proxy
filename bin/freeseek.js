@@ -885,6 +885,9 @@ function startServer(port = 8787) {
     }
 
     // Default HTML Status page
+    const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}alert('Copied DeepSeek API Key to clipboard!');}catch(e){alert('Key NOT copied: '+e);}})();`;
+    const autoContinueBookmarkletCode = `javascript:(function(){if(window.__deepseek_auto_continue_active){alert('DeepSeek Auto-Continue is already active on this tab!');return;}window.__deepseek_auto_continue_active=true;let lastClick=0;function clickContinue(){if(Date.now()-lastClick<2000)return false;const els=document.querySelectorAll('.ds-button__content, button, [role=button], .ds-button');for(const el of els){if((el.textContent||'').trim().toLowerCase()==='continue'){const btn=el.closest('[role=button]')||el.closest('button')||el;if(btn&&!btn.disabled&&btn.offsetParent!==null){console.log('[Auto-Continue] Clicked Continue button');lastClick=Date.now();btn.click();try{btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));}catch(e){}return true;}}}return false;}setInterval(clickContinue,400);new MutationObserver(clickContinue).observe(document.body,{childList:true,subtree:true});const b=document.createElement('div');b.textContent='Auto-Continue Active';b.style.cssText='position:fixed;bottom:16px;left:16px;background:#111;color:#fff;font-family:sans-serif;font-size:11px;font-weight:600;padding:6px 12px;border-radius:14px;z-index:999999;box-shadow:0 2px 8px rgba(0,0,0,0.2);pointer-events:none;';document.body.appendChild(b);alert('Auto-Continue is now active! Continue buttons will be clicked automatically.');})();`;
+
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...CORS_HEADERS });
     res.end(`<!DOCTYPE html>
 <html lang="en">
@@ -892,10 +895,12 @@ function startServer(port = 8787) {
   <meta charset="UTF-8">
   <title>freeseek - Local Proxy</title>
   <style>
-    body { font-family: monospace; background: #fff; color: #000; padding: 40px; line-height: 1.6; }
-    .box { border: 2px solid #000; padding: 24px; max-width: 600px; margin: 0 auto; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #fff; color: #000; padding: 40px; line-height: 1.6; }
+    .box { border: 2px solid #000; padding: 24px; max-width: 600px; margin: 0 auto; border-radius: 8px; }
     h1 { font-size: 20px; margin-top: 0; text-transform: uppercase; }
-    code { background: #f0f0f0; padding: 2px 6px; }
+    code { background: #f0f0f0; padding: 2px 6px; font-family: monospace; border-radius: 3px; }
+    .btn { display: inline-block; padding: 8px 14px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 12px; margin-right: 8px; }
+    .btn:hover { background: #262626; }
   </style>
 </head>
 <body>
@@ -908,7 +913,14 @@ function startServer(port = 8787) {
     <p><strong>API Key:</strong> <code>your DeepSeek token</code></p>
     <p><strong>Models:</strong> <code>deepseek-reasoner</code>, <code>deepseek-chat</code></p>
     <hr style="border: 1px solid #000; margin: 20px 0;">
-    <p>Running natively on your CPU with unlimited WebAssembly PoW capability.</p>
+    <h3>Browser Helper Tools:</h3>
+    <p style="font-size: 13px; color: #555; margin-bottom: 10px;">Drag these to your bookmarks bar for 1-click use on chat.deepseek.com:</p>
+    <div style="margin: 12px 0;">
+      <a class="btn" href="${bookmarkletCode}">Key Grabber</a>
+      <a class="btn" href="${autoContinueBookmarkletCode}">Auto-Continue</a>
+    </div>
+    <hr style="border: 1px solid #000; margin: 20px 0;">
+    <p style="font-size: 12px; color: #666;">Running natively on your CPU with unlimited WebAssembly PoW capability and zero Cloudflare limits.</p>
   </div>
 </body>
 </html>`);

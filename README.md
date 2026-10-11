@@ -134,5 +134,21 @@ Cursor Configuration:
 
 ---
 
+## DeepSeek Auto-Continue (Hands-Free UI)
+
+When DeepSeek outputs long responses or large code blocks on `chat.deepseek.com`, it frequently pauses and displays a "Continue" button.
+
+We provide two ways to automatically click this button without manual intervention:
+
+1. **Tampermonkey Userscript (Recommended)**:
+   - Install the userscript located at `userscript/deepseek-auto-continue.user.js` into Tampermonkey, Violentmonkey, or Greasemonkey.
+   - It runs silently in the background on `chat.deepseek.com` with zero latency DOM observation and automatically triggers the button.
+
+2. **Auto-Continue Bookmarklet**:
+   - Available directly on the web setup page and local server (`http://127.0.0.1:8787`).
+   - Drag the "Auto-Continue" button to your bookmarks bar and click it once on any active DeepSeek chat tab.
+
+---
+
 ## License
 MIT License. Free for personal and commercial use.

@@ -1002,6 +1002,7 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 function renderSetupHtml(origin) {
   const baseUrl = `${origin}/v1`;
   const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}alert('Copied DeepSeek API Key to clipboard!');}catch(e){alert('Key NOT copied: '+e);}})();`;
+  const autoContinueBookmarkletCode = `javascript:(function(){if(window.__deepseek_auto_continue_active){alert('DeepSeek Auto-Continue is already active on this tab!');return;}window.__deepseek_auto_continue_active=true;let lastClick=0;function clickContinue(){if(Date.now()-lastClick<2000)return false;const els=document.querySelectorAll('.ds-button__content, button, [role=button], .ds-button');for(const el of els){if((el.textContent||'').trim().toLowerCase()==='continue'){const btn=el.closest('[role=button]')||el.closest('button')||el;if(btn&&!btn.disabled&&btn.offsetParent!==null){console.log('[Auto-Continue] Clicked Continue button');lastClick=Date.now();btn.click();try{btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));}catch(e){}return true;}}}return false;}setInterval(clickContinue,400);new MutationObserver(clickContinue).observe(document.body,{childList:true,subtree:true});const b=document.createElement('div');b.textContent='Auto-Continue Active';b.style.cssText='position:fixed;bottom:16px;left:16px;background:#111;color:#fff;font-family:sans-serif;font-size:11px;font-weight:600;padding:6px 12px;border-radius:14px;z-index:999999;box-shadow:0 2px 8px rgba(0,0,0,0.2);pointer-events:none;';document.body.appendChild(b);alert('Auto-Continue is now active! Continue buttons will be clicked automatically.');})();`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1597,25 +1598,42 @@ function renderSetupHtml(origin) {
       </div>
     </div>
 
-    <!-- STEP 2: Add Bookmark -->
+    <!-- STEP 2: Add Bookmarks -->
     <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Add Key Grabber to Bookmarks</span>
+        <span>Browser Tools: Key Grabber & Auto-Continue</span>
       </div>
-      <p class="card-desc">Drag this button up to your browser's Bookmarks bar. This will let you grab your DeepSeek key in 1 click whenever you need it:</p>
+      <p class="card-desc">Drag these 1-click tools up to your browser's Bookmarks bar:</p>
 
-      <div id="bookmarklet-action-card" class="hero-action-card">
-        <div class="hero-action-body">
-          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
-            <span>DeepSeek Key Grabber</span>
-          </a>
-          <div class="drag-hint">Click and drag this button up into your bookmarks bar</div>
-          <div class="drag-subhint">Once placed in your bookmarks, you can get your key anytime with a single click.</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 18px 0;">
+        <div id="bookmarklet-action-card" class="hero-action-card" style="margin: 0;">
+          <div class="hero-action-body">
+            <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+              <span>Key Grabber</span>
+            </a>
+            <div class="drag-hint">DeepSeek Key Grabber</div>
+            <div class="drag-subhint">1-click copy of your session token</div>
+          </div>
         </div>
-        <div class="hero-action-footer">
-          <span><strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
+
+        <div id="autocontinue-action-card" class="hero-action-card" style="margin: 0;">
+          <div class="hero-action-body">
+            <a class="bookmarklet-btn" href="${autoContinueBookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+              <span>Auto-Continue</span>
+            </a>
+            <div class="drag-hint">DeepSeek Auto-Continue</div>
+            <div class="drag-subhint">Auto-clicks "Continue" on long outputs</div>
+          </div>
         </div>
+      </div>
+
+      <div class="hero-action-footer" style="border-radius: 6px; border: 1px solid var(--border); margin-bottom: 16px;">
+        <span><strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
+      </div>
+
+      <div style="padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; background: #fafafa; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px;">
+        <strong style="color: #000;">Prefer a permanent background script?</strong> You can also install the userscript in <code>userscript/deepseek-auto-continue.user.js</code> via Tampermonkey to auto-press Continue across all DeepSeek tabs automatically.
       </div>
 
       <div class="wizard-nav">
