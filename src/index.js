@@ -353,15 +353,24 @@ export default {
         const body = await request.json();
         return await handleChatCompletion(body, callerToken);
       } catch (err) {
+        const isRateLimit = err.message && (err.message.includes("extreme") || err.message.includes("429") || err.message.includes("load") || err.message.includes("difficulty"));
+        const statusCode = isRateLimit ? 429 : 500;
         return new Response(
           JSON.stringify({
             error: {
               message: err.message || "DeepSeek service temporarily unavailable. Please retry in a moment.",
-              type: "server_error",
-              code: "deepseek_unavailable",
+              type: isRateLimit ? "rate_limit_error" : "server_error",
+              code: isRateLimit ? "rate_limit_exceeded" : "deepseek_unavailable",
             },
           }),
-          { status: 500, headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
+          {
+            status: statusCode,
+            headers: {
+              "Content-Type": "application/json",
+              ...(isRateLimit ? { "Retry-After": "3" } : {}),
+              ...getCorsHeaders(),
+            },
+          }
         );
       }
     }
@@ -387,6 +396,53 @@ export default {
   },
 };
 
+// In-memory session cache across warm worker requests to avoid rate limits on chat_session/create
+const activeSessionCache = new Map();
+const SESSION_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+async function getOrCreateSession(token, baseHeaders) {
+  const cached = activeSessionCache.get(token);
+  const now = Date.now();
+  if (cached && (now - cached.created) < SESSION_TTL_MS) {
+    return cached.sessionId;
+  }
+
+  let sessionId = null;
+  let lastSessError = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const sessResp = await fetch("https://chat.deepseek.com/api/v0/chat_session/create", {
+        method: "POST",
+        headers: baseHeaders,
+        body: JSON.stringify({}),
+      });
+      if (!sessResp.ok) {
+        const text = await sessResp.text();
+        throw new Error(`DeepSeek session creation HTTP ${sessResp.status}: ${text.substring(0, 100)}`);
+      }
+      const sessData = await sessResp.json();
+      if (sessData.code !== 0) {
+        throw new Error(`Failed to create DeepSeek session: ${sessData.msg || "Unknown error"}`);
+      }
+      sessionId = sessData.data.biz_data.chat_session.id;
+      activeSessionCache.set(token, { sessionId, created: Date.now() });
+      return sessionId;
+    } catch (err) {
+      lastSessError = err;
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+  }
+
+  // Fallback to older cached session if available
+  if (cached && cached.sessionId) {
+    return cached.sessionId;
+  }
+
+  throw lastSessError || new Error("Failed to create DeepSeek session after retries");
+}
+
 // Chat completion with dynamic caller token
 async function handleChatCompletion(body, token) {
   const messages = body.messages || [];
@@ -411,36 +467,8 @@ async function handleChatCompletion(body, token) {
     "x-client-version": "2.5.0",
   };
 
-  // 1. Create DeepSeek session with retry for transient 502/503/network failures
-  let sessionId = null;
-  let lastSessError = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const sessResp = await fetch("https://chat.deepseek.com/api/v0/chat_session/create", {
-        method: "POST",
-        headers: baseHeaders,
-        body: JSON.stringify({}),
-      });
-      if (!sessResp.ok) {
-        const text = await sessResp.text();
-        throw new Error(`DeepSeek session unavailable: HTTP ${sessResp.status} - ${text.substring(0, 100)}`);
-      }
-      const sessData = await sessResp.json();
-      if (sessData.code !== 0) {
-        throw new Error(`Failed to create DeepSeek session: ${sessData.msg || "Unknown error"}`);
-      }
-      sessionId = sessData.data.biz_data.chat_session.id;
-      break;
-    } catch (err) {
-      lastSessError = err;
-      if (attempt < 2) {
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-      }
-    }
-  }
-  if (!sessionId) {
-    throw lastSessError || new Error("Failed to create DeepSeek session after retries");
-  }
+  // 1. Obtain or reuse DeepSeek session
+  const sessionId = await getOrCreateSession(token, baseHeaders);
 
   // 2. Upload any attached images to DeepSeek session
   const imageUrls = extractImagesFromMessages(messages);
@@ -462,10 +490,12 @@ async function handleChatCompletion(body, token) {
   }
   const uniqueFileIds = [...new Set(refFileIds)];
 
-  // 3. Obtain & solve PoW challenge with difficulty guard to protect free edge CPU limits
+  // 3. Obtain & solve PoW challenge with strict difficulty guard to protect free edge CPU limits
+  const MAX_SAFE_DIFFICULTY = 15000;
   let powHeaderValue = null;
   let lastPowError = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
+
+  for (let attempt = 0; attempt < 6; attempt++) {
     try {
       const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
         method: "POST",
@@ -473,7 +503,7 @@ async function handleChatCompletion(body, token) {
         body: JSON.stringify({ target_path: "/api/v0/chat/completion" }),
       });
       if (!powResp.ok) {
-        throw new Error(`PoW challenge endpoint unavailable: HTTP ${powResp.status}`);
+        throw new Error(`PoW challenge endpoint HTTP ${powResp.status}`);
       }
       const powData = await powResp.json();
       if (powData.code !== 0) {
@@ -481,10 +511,16 @@ async function handleChatCompletion(body, token) {
       }
       const challengeObj = powData.data.biz_data.challenge;
 
-      // If difficulty > 25000, avoid burning CPU time on free edge runtime; request a fresh challenge
-      if (challengeObj.difficulty > 25000 && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 200));
-        continue;
+      // If difficulty > MAX_SAFE_DIFFICULTY, NEVER hash it on edge! Request a fresh challenge instead.
+      if (challengeObj.difficulty > MAX_SAFE_DIFFICULTY) {
+        if (attempt < 5) {
+          await new Promise((r) => setTimeout(r, 150));
+          continue;
+        } else {
+          throw new Error(
+            `DeepSeek is currently under extreme traffic (PoW difficulty ${challengeObj.difficulty} exceeds edge CPU limit). Please retry your message.`
+          );
+        }
       }
 
       const answer = solveDeepSeekPoW(challengeObj);
@@ -500,11 +536,12 @@ async function handleChatCompletion(body, token) {
       break;
     } catch (err) {
       lastPowError = err;
-      if (attempt < 2) {
-        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      if (attempt < 5) {
+        await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
       }
     }
   }
+
   if (!powHeaderValue) {
     throw lastPowError || new Error("Failed to solve DeepSeek PoW challenge after retries");
   }
@@ -541,6 +578,9 @@ async function handleChatCompletion(body, token) {
       await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       continue;
     }
+
+    // Invalidate cached session on error so fresh session is created next time
+    activeSessionCache.delete(token);
 
     const errorText = await dsResponse.text();
     throw new Error(`DeepSeek completion error: HTTP ${dsResponse.status} - ${errorText.substring(0, 200)}`);
