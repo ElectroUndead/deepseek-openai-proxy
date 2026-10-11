@@ -1118,12 +1118,15 @@ function renderSetupHtml(origin) {
         </div>
 
         <div class="star-gate-actions" id="star-actions-container">
-          <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" class="btn-primary" onclick="markGithubStarOpened()">
+          <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" class="btn-primary" id="btn-star-github" onclick="markGithubStarOpened()">
             Star on GitHub
           </a>
-          <button id="btn-confirm-star" class="btn-secondary" onclick="confirmGithubStarAndAdvance()">
+          <button id="btn-confirm-star" class="btn-secondary" style="display: none;" onclick="confirmGithubStarAndAdvance()">
             I Have Starred: Continue to Step 2 →
           </button>
+        </div>
+        <div id="star-opened-hint" style="display: none; font-size: 12.5px; color: var(--text-muted); margin-top: 12px; line-height: 1.45;">
+          GitHub opened in a new tab. After clicking the Star button on GitHub, click <strong>I Have Starred: Continue to Step 2</strong> above.
         </div>
       </div>
 
@@ -1424,7 +1427,16 @@ npx wrangler deploy</code></pre>
     }
 
     function markGithubStarOpened() {
+      sessionStorage.setItem('deepseek_proxy_opened_github', 'true');
+      revealConfirmStarButton();
       showToast('Opening GitHub... Click Star at top right, then return here.');
+    }
+
+    function revealConfirmStarButton() {
+      const confirmBtn = document.getElementById('btn-confirm-star');
+      const hint = document.getElementById('star-opened-hint');
+      if (confirmBtn) confirmBtn.style.display = 'inline-flex';
+      if (hint) hint.style.display = 'block';
     }
 
     function confirmGithubStarAndAdvance() {
@@ -1445,6 +1457,9 @@ npx wrangler deploy</code></pre>
       } else {
         if (completedNotice) completedNotice.style.display = 'none';
         if (card) card.style.display = 'block';
+        if (sessionStorage.getItem('deepseek_proxy_opened_github') === 'true') {
+          revealConfirmStarButton();
+        }
       }
     }
 
