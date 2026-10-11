@@ -474,15 +474,12 @@ async function getOrCreateSession(token, baseHeaders) {
 }
 
 // Chat completion with dynamic caller token
-async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls, onRetryNotice) {
+async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls) {
   let lastErr = null;
 
-  for (let attempt = 0; attempt < 5; attempt++) {
+  // Maximum 2 attempts so overall wait time is < 2.5 seconds, well under Cursor's 8.4-second stream timeout!
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      if (attempt > 0 && typeof onRetryNotice === "function") {
-        await onRetryNotice(attempt);
-      }
-
       // 1. Session
       const sessionId = await getOrCreateSession(token, baseHeaders);
 
@@ -501,14 +498,10 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       }
       const uniqueFileIds = [...new Set(refFileIds)];
 
-      // 3. PoW challenge with difficulty retry
+      // 3. PoW challenge with difficulty retry (max 3 fast attempts)
       let powHeaderValue = null;
-      for (let powAttempt = 0; powAttempt < 8; powAttempt++) {
+      for (let powAttempt = 0; powAttempt < 3; powAttempt++) {
         try {
-          if (powAttempt > 0 && typeof onRetryNotice === "function") {
-            await onRetryNotice(powAttempt);
-          }
-
           const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
             method: "POST",
             headers: baseHeaders,
@@ -519,8 +512,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           if (powData.code !== 0) throw new Error(powData.msg || "PoW challenge error");
           const challengeObj = powData.data.biz_data.challenge;
 
-          if (challengeObj.difficulty > 200000 && powAttempt < 7) {
-            await new Promise((r) => setTimeout(r, 250));
+          if (challengeObj.difficulty > 200000 && powAttempt < 2) {
+            await new Promise((r) => setTimeout(r, 150));
             continue;
           }
 
@@ -535,8 +528,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           }));
           break;
         } catch (pe) {
-          if (powAttempt < 7) {
-            await new Promise((r) => setTimeout(r, 250 * (powAttempt + 1)));
+          if (powAttempt < 2) {
+            await new Promise((r) => setTimeout(r, 150 * (powAttempt + 1)));
           }
         }
       }
@@ -573,8 +566,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       // Invalidate session on error
       activeSessionCache.delete(token);
 
-      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 4) {
-        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+      if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 1) {
+        await new Promise((r) => setTimeout(r, 500));
         continue;
       }
 
@@ -583,8 +576,8 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
     } catch (e) {
       lastErr = e;
       activeSessionCache.delete(token);
-      if (attempt < 4) {
-        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+      if (attempt < 1) {
+        await new Promise((r) => setTimeout(r, 500));
       }
     }
   }
@@ -646,11 +639,7 @@ async function handleChatCompletion(body, token) {
             baseHeaders,
             token,
             thinkingEnabled,
-            imageUrls,
-            async (attemptNum) => {
-              // Keep connection alive with silent SSE heartbeat during backoff
-              await writer.write(encoder.encode(`: ping\n\n`));
-            }
+            imageUrls
           );
         } catch (dispatchErr) {
           console.error("DeepSeek dispatch error:", dispatchErr);
