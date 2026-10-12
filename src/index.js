@@ -474,14 +474,17 @@ async function getOrCreateSession(token, baseHeaders) {
 }
 
 // Chat completion with dynamic caller token
-async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls) {
+async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls, options = {}) {
   let lastErr = null;
+  const targetSessionId = options.sessionId || null;
+  const parentMessageId = options.parentMessageId !== undefined ? options.parentMessageId : null;
+  const useThinking = options.thinkingEnabled !== undefined ? options.thinkingEnabled : thinkingEnabled;
 
   // Maximum 2 attempts so overall wait time is < 2.5 seconds, well under Cursor's 8.4-second stream timeout!
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // 1. Session
-      const sessionId = await getOrCreateSession(token, baseHeaders);
+      const sessionId = targetSessionId || await getOrCreateSession(token, baseHeaders);
 
       // 2. Images
       const refFileIds = [];
@@ -546,10 +549,10 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
 
       const completionPayload = {
         chat_session_id: sessionId,
-        parent_message_id: null,
+        parent_message_id: parentMessageId,
         prompt: prompt,
         ref_file_ids: uniqueFileIds,
-        thinking_enabled: thinkingEnabled,
+        thinking_enabled: useThinking,
         search_enabled: false,
       };
 
@@ -560,7 +563,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       });
 
       if (dsResponse.ok) {
-        return dsResponse;
+        return { response: dsResponse, sessionId };
       }
 
       // Invalidate session on error
@@ -583,6 +586,50 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
   }
 
   throw lastErr || new Error("Failed to connect to DeepSeek (503)");
+}
+
+// -----------------------------------------------------------------------------
+// Auto-Continue Verification Engine Helpers
+// -----------------------------------------------------------------------------
+function checkNeedsContinuation(text) {
+  if (!text || text.trim().length === 0) return { needsContinuation: false, reason: "empty" };
+  const trimmed = text.trim();
+
+  // 1. Unclosed code block: count of ``` is odd
+  const fenceMatches = text.match(/```/g);
+  if (fenceMatches && (fenceMatches.length % 2 !== 0)) {
+    return { needsContinuation: true, reason: "unclosed_code_fence" };
+  }
+
+  // 2. Trailing syntax / tokens indicating mid-sentence or mid-expression cutoff
+  const abruptEnding = /[,(=+\-*\/&|<>:;{\[\]\\]\s*$/.test(trimmed) ||
+                       /\b(and|or|then|because|with|if|function|const|let|var|def|class|return)\s*$/i.test(trimmed);
+  if (abruptEnding) {
+    return { needsContinuation: true, reason: "abrupt_ending" };
+  }
+
+  // 3. Substantive answers (> 300 chars) that ended without terminal punctuation
+  const lastChar = trimmed.slice(-1);
+  const endsWithPunctuation = ['.', '!', '?', '"', "'", '`', '}', ')', '>', '#'].includes(lastChar) || trimmed.endsWith('```');
+  if (trimmed.length > 300 && !endsWithPunctuation) {
+    return { needsContinuation: true, reason: "missing_terminal_punctuation" };
+  }
+
+  // 4. Substantive answers (> 600 chars) to verify with DeepSeek if everything has been completed
+  if (trimmed.length > 600) {
+    return { needsContinuation: true, reason: "verify_completeness" };
+  }
+
+  return { needsContinuation: false, reason: "complete" };
+}
+
+function isContinuationCompleteSignal(text) {
+  if (!text) return false;
+  const t = text.trim().toLowerCase();
+  if (t === "[complete]" || t.startsWith("[complete]")) return true;
+  if (/^yes[,\.\s]+(the\s+answer\s+is\s+complete|everything\s+has\s+been\s+given|all\s+code\s+is\s+complete|it\s+is\s+complete)/i.test(t)) return true;
+  if (/^(the\s+answer\s+is\s+complete|everything\s+is\s+complete|all\s+requested\s+information\s+has\s+been\s+provided)\.?$/i.test(t)) return true;
+  return false;
 }
 
 // Chat completion with dynamic caller token
@@ -631,8 +678,9 @@ async function handleChatCompletion(body, token) {
         await writer.write(encoder.encode(`data: ${JSON.stringify(initialChunk)}\n\n`));
 
         let dsResponse = null;
+        let activeSessionId = null;
         try {
-          dsResponse = await dispatchDeepSeekCompletion(
+          const dispatchResult = await dispatchDeepSeekCompletion(
             prompt,
             messages,
             tools,
@@ -641,6 +689,8 @@ async function handleChatCompletion(body, token) {
             thinkingEnabled,
             imageUrls
           );
+          dsResponse = dispatchResult.response;
+          activeSessionId = dispatchResult.sessionId;
         } catch (dispatchErr) {
           console.error("DeepSeek dispatch error:", dispatchErr);
           // Graceful fallback: emit friendly assistant message so Cursor continues normally without stopping!
@@ -658,6 +708,7 @@ async function handleChatCompletion(body, token) {
           return;
         }
 
+        let lastResponseMsgId = null;
         const reader = dsResponse.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -727,6 +778,12 @@ async function handleChatCompletion(body, token) {
 
               try {
                 const data = JSON.parse(dataStr);
+                if (data.response_message_id) {
+                  lastResponseMsgId = data.response_message_id;
+                }
+                if (data.v && data.v.response && (data.v.response.message_id || data.v.response.id)) {
+                  lastResponseMsgId = data.v.response.message_id || data.v.response.id || lastResponseMsgId;
+                }
 
                 if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
                   currentFragmentType = data.v.response.fragments[0].type || "THINK";
@@ -804,6 +861,8 @@ async function handleChatCompletion(body, token) {
             choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
           };
           await writer.write(encoder.encode(`data: ${JSON.stringify(finishChunk)}\n\n`));
+          await writer.write(encoder.encode("data: [DONE]\n\n"));
+          return;
         } else {
           if (inToolCallBlock) {
             // Strip any raw DSML tags so formatting NEVER leaks into the chat!
@@ -813,6 +872,142 @@ async function handleChatCompletion(body, token) {
             if (!hasEmittedContent && cleanText) {
               await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", cleanText);
               hasEmittedContent = true;
+            }
+          }
+
+          // Auto-Continue Verification Engine: Check if DeepSeek finished or if more is needed
+          let continuationCount = 0;
+          let alreadyVerifiedCompleteness = false;
+          const MAX_CONTINUATIONS = 2;
+
+          while (continuationCount < MAX_CONTINUATIONS) {
+            const checkResult = checkNeedsContinuation(accumulatedResponseText);
+            if (!checkResult.needsContinuation) break;
+            if (checkResult.reason === "verify_completeness" && alreadyVerifiedCompleteness) break;
+
+            continuationCount++;
+            if (checkResult.reason === "verify_completeness") {
+              alreadyVerifiedCompleteness = true;
+            }
+
+            let continuationPrompt;
+            if (checkResult.reason === "unclosed_code_fence") {
+              continuationPrompt = `Your previous output stopped abruptly inside an unclosed code block. Continue writing the code immediately from the exact character where you left off. Do not repeat previous lines and do not provide any greeting or explanation. Output only the continuation until the code block is closed.`;
+            } else if (checkResult.reason === "abrupt_ending" || checkResult.reason === "missing_terminal_punctuation") {
+              continuationPrompt = `Your previous response stopped before finishing. Continue directly from where you left off. Do not repeat previous text and do not add conversational preamble. Complete the remaining answer.`;
+            } else {
+              continuationPrompt = `Has everything been given for the user's request? Is the answer complete and should we stop?
+- If YES (the answer is completely finished with nothing missing or cut off): Reply with ONLY "[COMPLETE]" and nothing else.
+- If NO (the answer is incomplete, was truncated, or parts remain): Do not say "[COMPLETE]". Continue writing the remaining answer/code immediately where you left off until it is 100% complete.`;
+            }
+
+            try {
+              const contResult = await dispatchDeepSeekCompletion(
+                continuationPrompt,
+                messages,
+                tools,
+                baseHeaders,
+                token,
+                false,
+                [],
+                { sessionId: activeSessionId, parentMessageId: lastResponseMsgId }
+              );
+
+              const contReader = contResult.response.body.getReader();
+              let contBuffer = "";
+              let contAccumulated = "";
+              let contInitialBuffer = "";
+              let contIsComplete = false;
+              let contStreamStarted = false;
+              let contCurrentFragment = "RESPONSE";
+
+              while (true) {
+                const { value, done } = await contReader.read();
+                if (done) break;
+
+                contBuffer += decoder.decode(value, { stream: true });
+                const contLines = contBuffer.split("\n");
+                contBuffer = contLines.pop();
+
+                for (const line of contLines) {
+                  if (line.startsWith("event: close") || line.includes("[DONE]")) break;
+                  if (line.startsWith("data:")) {
+                    const dataStr = line.substring(5).trim();
+                    if (!dataStr) continue;
+
+                    try {
+                      const data = JSON.parse(dataStr);
+                      if (data.response_message_id) {
+                        lastResponseMsgId = data.response_message_id;
+                      }
+                      if (data.v && data.v.response && (data.v.response.message_id || data.v.response.id)) {
+                        lastResponseMsgId = data.v.response.message_id || data.v.response.id || lastResponseMsgId;
+                      }
+
+                      let chunkText = "";
+                      if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
+                        contCurrentFragment = data.v.response.fragments[0].type || "RESPONSE";
+                        chunkText = data.v.response.fragments[0].content || "";
+                      } else if (data.p === "response/fragments" && data.o === "APPEND" && Array.isArray(data.v) && data.v.length > 0) {
+                        contCurrentFragment = data.v[0].type || "RESPONSE";
+                        chunkText = data.v[0].content || "";
+                      } else if (data.v && typeof data.v === "string" && (!data.p || !data.p.includes("status"))) {
+                        chunkText = data.v;
+                      }
+
+                      if (!chunkText || contCurrentFragment === "THINK") continue;
+
+                      contAccumulated += chunkText;
+
+                      if (!contStreamStarted) {
+                        contInitialBuffer += chunkText;
+                        if (contInitialBuffer.length > 15 || contInitialBuffer.includes("\n") || contInitialBuffer.includes("]")) {
+                          if (isContinuationCompleteSignal(contInitialBuffer)) {
+                            contIsComplete = true;
+                            break;
+                          } else {
+                            contStreamStarted = true;
+                            let toEmit = contInitialBuffer;
+                            if (checkResult.reason === "unclosed_code_fence") {
+                              toEmit = toEmit.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
+                            }
+                            toEmit = toEmit.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
+                            if (toEmit) {
+                              await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", toEmit);
+                              hasEmittedContent = true;
+                            }
+                          }
+                        }
+                      } else {
+                        await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", chunkText);
+                        hasEmittedContent = true;
+                      }
+                    } catch (e) {}
+                  }
+                }
+                if (contIsComplete) break;
+              }
+
+              if (contIsComplete || isContinuationCompleteSignal(contAccumulated)) {
+                break;
+              }
+
+              if (!contStreamStarted && contInitialBuffer && !isContinuationCompleteSignal(contInitialBuffer)) {
+                let toEmit = contInitialBuffer;
+                if (checkResult.reason === "unclosed_code_fence") {
+                  toEmit = toEmit.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
+                }
+                toEmit = toEmit.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
+                if (toEmit) {
+                  await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", toEmit);
+                  hasEmittedContent = true;
+                }
+              }
+
+              accumulatedResponseText += "\n" + contAccumulated;
+            } catch (contErr) {
+              console.warn("Auto-Continue attempt error:", contErr);
+              break;
             }
           }
 
@@ -871,8 +1066,11 @@ async function handleChatCompletion(body, token) {
 
   // Non-streaming Response
   let dsResponse = null;
+  let activeSessionId = null;
   try {
-    dsResponse = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+    const dispatchResult = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+    dsResponse = dispatchResult.response;
+    activeSessionId = dispatchResult.sessionId;
   } catch (err) {
     return new Response(
       JSON.stringify({
@@ -894,6 +1092,8 @@ async function handleChatCompletion(body, token) {
       { headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
     );
   }
+  let lastResponseMsgId = null;
+  const reader = dsResponse.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let thinkAccumulated = "";
@@ -915,6 +1115,13 @@ async function handleChatCompletion(body, token) {
 
         try {
           const data = JSON.parse(dataStr);
+          if (data.response_message_id) {
+            lastResponseMsgId = data.response_message_id;
+          }
+          if (data.v && data.v.response && (data.v.response.message_id || data.v.response.id)) {
+            lastResponseMsgId = data.v.response.message_id || data.v.response.id || lastResponseMsgId;
+          }
+
           if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
             currentFragmentType = data.v.response.fragments[0].type || "THINK";
             const initC = data.v.response.fragments[0].content || "";
@@ -946,6 +1153,81 @@ async function handleChatCompletion(body, token) {
       reasoning_content: thinkAccumulated || null,
     };
   } else {
+    // Auto-Continue verification for non-streaming
+    let nonStreamContCount = 0;
+    let nonStreamVerified = false;
+    while (nonStreamContCount < 1) {
+      const checkResult = checkNeedsContinuation(responseAccumulated);
+      if (!checkResult.needsContinuation) break;
+      if (checkResult.reason === "verify_completeness" && nonStreamVerified) break;
+
+      nonStreamContCount++;
+      if (checkResult.reason === "verify_completeness") nonStreamVerified = true;
+
+      let continuationPrompt;
+      if (checkResult.reason === "unclosed_code_fence") {
+        continuationPrompt = `Your previous output stopped abruptly inside an unclosed code block. Continue writing the code immediately from the exact character where you left off. Do not repeat previous lines and do not provide any greeting or explanation. Output only the continuation until the code block is closed.`;
+      } else if (checkResult.reason === "abrupt_ending" || checkResult.reason === "missing_terminal_punctuation") {
+        continuationPrompt = `Your previous response stopped before finishing. Continue directly from where you left off. Do not repeat previous text and do not add conversational preamble. Complete the remaining answer.`;
+      } else {
+        continuationPrompt = `Has everything been given for the user's request? Is the answer complete and should we stop?
+- If YES (the answer is completely finished with nothing missing or cut off): Reply with ONLY "[COMPLETE]" and nothing else.
+- If NO (the answer is incomplete, was truncated, or parts remain): Do not say "[COMPLETE]". Continue writing the remaining answer/code immediately where you left off until it is 100% complete.`;
+      }
+
+      try {
+        const contResult = await dispatchDeepSeekCompletion(
+          continuationPrompt,
+          messages,
+          tools,
+          baseHeaders,
+          token,
+          false,
+          [],
+          { sessionId: activeSessionId, parentMessageId: lastResponseMsgId }
+        );
+
+        const contReader = contResult.response.body.getReader();
+        let contBuf = "";
+        let contText = "";
+
+        while (true) {
+          const { value, done } = await contReader.read();
+          if (done) break;
+          contBuf += decoder.decode(value, { stream: true });
+          const cLines = contBuf.split("\n");
+          contBuf = cLines.pop();
+          for (const l of cLines) {
+            if (l.startsWith("data:")) {
+              const s = l.substring(5).trim();
+              if (!s) continue;
+              try {
+                const d = JSON.parse(s);
+                if (d.v && typeof d.v === "string" && (!d.p || !d.p.includes("status"))) {
+                  contText += d.v;
+                } else if (d.p === "response/fragments" && Array.isArray(d.v) && d.v[0]?.content) {
+                  contText += d.v[0].content;
+                }
+              } catch(e) {}
+            }
+          }
+        }
+
+        if (isContinuationCompleteSignal(contText)) break;
+
+        let toAppend = contText;
+        if (checkResult.reason === "unclosed_code_fence") {
+          toAppend = toAppend.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
+        }
+        toAppend = toAppend.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
+        if (toAppend) {
+          responseAccumulated += "\n" + toAppend;
+        }
+      } catch(e) {
+        break;
+      }
+    }
+
     const cleanContent = (responseAccumulated || "")
       .replace(/<\s*(\/?)\s*\|*[\s|]*DSML[\s|]*\|*[^>]*>/gi, "")
       .trim();
