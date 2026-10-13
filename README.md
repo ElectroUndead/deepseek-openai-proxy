@@ -114,39 +114,27 @@ for chunk in response:
 
 ---
 
-## Running Locally (freeseek CLI)
+## Running Locally (freeseek Local Dashboard)
 
-If you prefer running the proxy directly on your machine without Cloudflare edge CPU limits:
+The local server runs directly on your machine with native WebAssembly PoW solving and an interactive onboarding dashboard:
 
 ```bash
-# 1. Run directly from this repo:
+# Start the local proxy:
 npm start
 
-# 2. Or run globally from any terminal:
+# Or install globally:
 npm link
-freeseek start
+freeseek
 ```
 
-Cursor Configuration:
-- Base URL: `http://127.0.0.1:8787/v1`
-- API Key: your DeepSeek token
-- Model: `deepseek-reasoner` or `deepseek-chat`
-
----
-
-## DeepSeek Auto-Continue (Hands-Free UI)
-
-When DeepSeek outputs long responses or large code blocks on `chat.deepseek.com`, it frequently pauses and displays a "Continue" button.
-
-We provide two ways to automatically click this button without manual intervention:
-
-1. **Tampermonkey Userscript (Recommended)**:
-   - Install the userscript located at `userscript/deepseek-auto-continue.user.js` into Tampermonkey, Violentmonkey, or Greasemonkey.
-   - It runs silently in the background on `chat.deepseek.com` with zero latency DOM observation and automatically triggers the button.
-
-2. **Auto-Continue Bookmarklet**:
-   - Available directly on the web setup page and local server (`http://127.0.0.1:8787`).
-   - Drag the "Auto-Continue" button to your bookmarks bar and click it once on any active DeepSeek chat tab.
+### Beginner-Friendly Local Onboarding
+1. Running `freeseek` automatically opens `http://127.0.0.1:8787` in your browser.
+2. Click **Open chat.deepseek.com** and sign in.
+3. Drag the **Sync Token with Local Freeseek** bookmarklet to your bookmarks bar and click it once on chat.deepseek.com. Your session token is saved automatically to `~/.freeseek/config.json`.
+4. In Cursor, VS Code, Roo, or Continue, set:
+   - **OpenAI Base URL**: `http://127.0.0.1:8787/v1`
+   - **API Key**: `dummy` (any key works, as credentials are managed locally)
+   - **Models**: `deepseek-reasoner`, `deepseek-chat`
 
 ---
 

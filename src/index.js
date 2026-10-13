@@ -588,49 +588,6 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
   throw lastErr || new Error("Failed to connect to DeepSeek (503)");
 }
 
-// -----------------------------------------------------------------------------
-// Auto-Continue Verification Engine Helpers
-// -----------------------------------------------------------------------------
-function checkNeedsContinuation(text) {
-  if (!text || text.trim().length === 0) return { needsContinuation: false, reason: "empty" };
-  const trimmed = text.trim();
-
-  // 1. Unclosed code block: count of ``` is odd
-  const fenceMatches = text.match(/```/g);
-  if (fenceMatches && (fenceMatches.length % 2 !== 0)) {
-    return { needsContinuation: true, reason: "unclosed_code_fence" };
-  }
-
-  // 2. Trailing syntax / tokens indicating mid-sentence or mid-expression cutoff
-  const abruptEnding = /[,(=+\-*\/&|<>:;{\[\]\\]\s*$/.test(trimmed) ||
-                       /\b(and|or|then|because|with|if|function|const|let|var|def|class|return)\s*$/i.test(trimmed);
-  if (abruptEnding) {
-    return { needsContinuation: true, reason: "abrupt_ending" };
-  }
-
-  // 3. Substantive answers (> 300 chars) that ended without terminal punctuation
-  const lastChar = trimmed.slice(-1);
-  const endsWithPunctuation = ['.', '!', '?', '"', "'", '`', '}', ')', '>', '#'].includes(lastChar) || trimmed.endsWith('```');
-  if (trimmed.length > 300 && !endsWithPunctuation) {
-    return { needsContinuation: true, reason: "missing_terminal_punctuation" };
-  }
-
-  // 4. Substantive answers (> 600 chars) to verify with DeepSeek if everything has been completed
-  if (trimmed.length > 600) {
-    return { needsContinuation: true, reason: "verify_completeness" };
-  }
-
-  return { needsContinuation: false, reason: "complete" };
-}
-
-function isContinuationCompleteSignal(text) {
-  if (!text) return false;
-  const t = text.trim().toLowerCase();
-  if (t === "[complete]" || t.startsWith("[complete]")) return true;
-  if (/^yes[,\.\s]+(the\s+answer\s+is\s+complete|everything\s+has\s+been\s+given|all\s+code\s+is\s+complete|it\s+is\s+complete)/i.test(t)) return true;
-  if (/^(the\s+answer\s+is\s+complete|everything\s+is\s+complete|all\s+requested\s+information\s+has\s+been\s+provided)\.?$/i.test(t)) return true;
-  return false;
-}
 
 // Chat completion with dynamic caller token
 async function handleChatCompletion(body, token) {
@@ -875,142 +832,6 @@ async function handleChatCompletion(body, token) {
             }
           }
 
-          // Auto-Continue Verification Engine: Check if DeepSeek finished or if more is needed
-          let continuationCount = 0;
-          let alreadyVerifiedCompleteness = false;
-          const MAX_CONTINUATIONS = 2;
-
-          while (continuationCount < MAX_CONTINUATIONS) {
-            const checkResult = checkNeedsContinuation(accumulatedResponseText);
-            if (!checkResult.needsContinuation) break;
-            if (checkResult.reason === "verify_completeness" && alreadyVerifiedCompleteness) break;
-
-            continuationCount++;
-            if (checkResult.reason === "verify_completeness") {
-              alreadyVerifiedCompleteness = true;
-            }
-
-            let continuationPrompt;
-            if (checkResult.reason === "unclosed_code_fence") {
-              continuationPrompt = `Your previous output stopped abruptly inside an unclosed code block. Continue writing the code immediately from the exact character where you left off. Do not repeat previous lines and do not provide any greeting or explanation. Output only the continuation until the code block is closed.`;
-            } else if (checkResult.reason === "abrupt_ending" || checkResult.reason === "missing_terminal_punctuation") {
-              continuationPrompt = `Your previous response stopped before finishing. Continue directly from where you left off. Do not repeat previous text and do not add conversational preamble. Complete the remaining answer.`;
-            } else {
-              continuationPrompt = `Has everything been given for the user's request? Is the answer complete and should we stop?
-- If YES (the answer is completely finished with nothing missing or cut off): Reply with ONLY "[COMPLETE]" and nothing else.
-- If NO (the answer is incomplete, was truncated, or parts remain): Do not say "[COMPLETE]". Continue writing the remaining answer/code immediately where you left off until it is 100% complete.`;
-            }
-
-            try {
-              const contResult = await dispatchDeepSeekCompletion(
-                continuationPrompt,
-                messages,
-                tools,
-                baseHeaders,
-                token,
-                false,
-                [],
-                { sessionId: activeSessionId, parentMessageId: lastResponseMsgId }
-              );
-
-              const contReader = contResult.response.body.getReader();
-              let contBuffer = "";
-              let contAccumulated = "";
-              let contInitialBuffer = "";
-              let contIsComplete = false;
-              let contStreamStarted = false;
-              let contCurrentFragment = "RESPONSE";
-
-              while (true) {
-                const { value, done } = await contReader.read();
-                if (done) break;
-
-                contBuffer += decoder.decode(value, { stream: true });
-                const contLines = contBuffer.split("\n");
-                contBuffer = contLines.pop();
-
-                for (const line of contLines) {
-                  if (line.startsWith("event: close") || line.includes("[DONE]")) break;
-                  if (line.startsWith("data:")) {
-                    const dataStr = line.substring(5).trim();
-                    if (!dataStr) continue;
-
-                    try {
-                      const data = JSON.parse(dataStr);
-                      if (data.response_message_id) {
-                        lastResponseMsgId = data.response_message_id;
-                      }
-                      if (data.v && data.v.response && (data.v.response.message_id || data.v.response.id)) {
-                        lastResponseMsgId = data.v.response.message_id || data.v.response.id || lastResponseMsgId;
-                      }
-
-                      let chunkText = "";
-                      if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
-                        contCurrentFragment = data.v.response.fragments[0].type || "RESPONSE";
-                        chunkText = data.v.response.fragments[0].content || "";
-                      } else if (data.p === "response/fragments" && data.o === "APPEND" && Array.isArray(data.v) && data.v.length > 0) {
-                        contCurrentFragment = data.v[0].type || "RESPONSE";
-                        chunkText = data.v[0].content || "";
-                      } else if (data.v && typeof data.v === "string" && (!data.p || !data.p.includes("status"))) {
-                        chunkText = data.v;
-                      }
-
-                      if (!chunkText || contCurrentFragment === "THINK") continue;
-
-                      contAccumulated += chunkText;
-
-                      if (!contStreamStarted) {
-                        contInitialBuffer += chunkText;
-                        if (contInitialBuffer.length > 15 || contInitialBuffer.includes("\n") || contInitialBuffer.includes("]")) {
-                          if (isContinuationCompleteSignal(contInitialBuffer)) {
-                            contIsComplete = true;
-                            break;
-                          } else {
-                            contStreamStarted = true;
-                            let toEmit = contInitialBuffer;
-                            if (checkResult.reason === "unclosed_code_fence") {
-                              toEmit = toEmit.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
-                            }
-                            toEmit = toEmit.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
-                            if (toEmit) {
-                              await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", toEmit);
-                              hasEmittedContent = true;
-                            }
-                          }
-                        }
-                      } else {
-                        await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", chunkText);
-                        hasEmittedContent = true;
-                      }
-                    } catch (e) {}
-                  }
-                }
-                if (contIsComplete) break;
-              }
-
-              if (contIsComplete || isContinuationCompleteSignal(contAccumulated)) {
-                break;
-              }
-
-              if (!contStreamStarted && contInitialBuffer && !isContinuationCompleteSignal(contInitialBuffer)) {
-                let toEmit = contInitialBuffer;
-                if (checkResult.reason === "unclosed_code_fence") {
-                  toEmit = toEmit.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
-                }
-                toEmit = toEmit.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
-                if (toEmit) {
-                  await emitStreamDelta(writer, encoder, completionId, model, createdTimestamp, "RESPONSE", toEmit);
-                  hasEmittedContent = true;
-                }
-              }
-
-              accumulatedResponseText += "\n" + contAccumulated;
-            } catch (contErr) {
-              console.warn("Auto-Continue attempt error:", contErr);
-              break;
-            }
-          }
-
           // Safety guard for Image 2 ("returned a completed response with no content"):
           // If no content deltas and no tool calls were emitted, emit a fallback chunk so Cursor never fails!
           if (!hasEmittedContent) {
@@ -1152,81 +973,6 @@ async function handleChatCompletion(body, token) {
       tool_calls: dsml.toolCalls,
       reasoning_content: thinkAccumulated || null,
     };
-  } else {
-    // Auto-Continue verification for non-streaming
-    let nonStreamContCount = 0;
-    let nonStreamVerified = false;
-    while (nonStreamContCount < 1) {
-      const checkResult = checkNeedsContinuation(responseAccumulated);
-      if (!checkResult.needsContinuation) break;
-      if (checkResult.reason === "verify_completeness" && nonStreamVerified) break;
-
-      nonStreamContCount++;
-      if (checkResult.reason === "verify_completeness") nonStreamVerified = true;
-
-      let continuationPrompt;
-      if (checkResult.reason === "unclosed_code_fence") {
-        continuationPrompt = `Your previous output stopped abruptly inside an unclosed code block. Continue writing the code immediately from the exact character where you left off. Do not repeat previous lines and do not provide any greeting or explanation. Output only the continuation until the code block is closed.`;
-      } else if (checkResult.reason === "abrupt_ending" || checkResult.reason === "missing_terminal_punctuation") {
-        continuationPrompt = `Your previous response stopped before finishing. Continue directly from where you left off. Do not repeat previous text and do not add conversational preamble. Complete the remaining answer.`;
-      } else {
-        continuationPrompt = `Has everything been given for the user's request? Is the answer complete and should we stop?
-- If YES (the answer is completely finished with nothing missing or cut off): Reply with ONLY "[COMPLETE]" and nothing else.
-- If NO (the answer is incomplete, was truncated, or parts remain): Do not say "[COMPLETE]". Continue writing the remaining answer/code immediately where you left off until it is 100% complete.`;
-      }
-
-      try {
-        const contResult = await dispatchDeepSeekCompletion(
-          continuationPrompt,
-          messages,
-          tools,
-          baseHeaders,
-          token,
-          false,
-          [],
-          { sessionId: activeSessionId, parentMessageId: lastResponseMsgId }
-        );
-
-        const contReader = contResult.response.body.getReader();
-        let contBuf = "";
-        let contText = "";
-
-        while (true) {
-          const { value, done } = await contReader.read();
-          if (done) break;
-          contBuf += decoder.decode(value, { stream: true });
-          const cLines = contBuf.split("\n");
-          contBuf = cLines.pop();
-          for (const l of cLines) {
-            if (l.startsWith("data:")) {
-              const s = l.substring(5).trim();
-              if (!s) continue;
-              try {
-                const d = JSON.parse(s);
-                if (d.v && typeof d.v === "string" && (!d.p || !d.p.includes("status"))) {
-                  contText += d.v;
-                } else if (d.p === "response/fragments" && Array.isArray(d.v) && d.v[0]?.content) {
-                  contText += d.v[0].content;
-                }
-              } catch(e) {}
-            }
-          }
-        }
-
-        if (isContinuationCompleteSignal(contText)) break;
-
-        let toAppend = contText;
-        if (checkResult.reason === "unclosed_code_fence") {
-          toAppend = toAppend.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
-        }
-        toAppend = toAppend.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
-        if (toAppend) {
-          responseAccumulated += "\n" + toAppend;
-        }
-      } catch(e) {
-        break;
-      }
-    }
 
     const cleanContent = (responseAccumulated || "")
       .replace(/<\s*(\/?)\s*\|*[\s|]*DSML[\s|]*\|*[^>]*>/gi, "")
@@ -1284,7 +1030,6 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 function renderSetupHtml(origin) {
   const baseUrl = `${origin}/v1`;
   const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}alert('Copied DeepSeek API Key to clipboard!');}catch(e){alert('Key NOT copied: '+e);}})();`;
-  const autoContinueBookmarkletCode = `javascript:(function(){if(window.__deepseek_auto_continue_active){alert('DeepSeek Auto-Continue is already active on this tab!');return;}window.__deepseek_auto_continue_active=true;let lastClick=0;function clickContinue(){if(Date.now()-lastClick<2000)return false;const els=document.querySelectorAll('.ds-button__content, button, [role=button], .ds-button');for(const el of els){if((el.textContent||'').trim().toLowerCase()==='continue'){const btn=el.closest('[role=button]')||el.closest('button')||el;if(btn&&!btn.disabled&&btn.offsetParent!==null){console.log('[Auto-Continue] Clicked Continue button');lastClick=Date.now();btn.click();try{btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));}catch(e){}return true;}}}return false;}setInterval(clickContinue,400);new MutationObserver(clickContinue).observe(document.body,{childList:true,subtree:true});const b=document.createElement('div');b.textContent='Auto-Continue Active';b.style.cssText='position:fixed;bottom:16px;left:16px;background:#111;color:#fff;font-family:sans-serif;font-size:11px;font-weight:600;padding:6px 12px;border-radius:14px;z-index:999999;box-shadow:0 2px 8px rgba(0,0,0,0.2);pointer-events:none;';document.body.appendChild(b);alert('Auto-Continue is now active! Continue buttons will be clicked automatically.');})();`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1880,42 +1625,25 @@ function renderSetupHtml(origin) {
       </div>
     </div>
 
-    <!-- STEP 2: Add Bookmarks -->
+    <!-- STEP 2: Add Bookmark -->
     <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Browser Tools: Key Grabber & Auto-Continue</span>
+        <span>Browser Tool: 1-Click Key Grabber</span>
       </div>
-      <p class="card-desc">Drag these 1-click tools up to your browser's Bookmarks bar:</p>
+      <p class="card-desc">Drag this 1-click tool up to your browser's Bookmarks bar:</p>
 
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 18px 0;">
-        <div id="bookmarklet-action-card" class="hero-action-card" style="margin: 0;">
-          <div class="hero-action-body">
-            <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
-              <span>Key Grabber</span>
-            </a>
-            <div class="drag-hint">DeepSeek Key Grabber</div>
-            <div class="drag-subhint">1-click copy of your session token</div>
-          </div>
+      <div id="bookmarklet-action-card" class="hero-action-card">
+        <div class="hero-action-body">
+          <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+            <span>DeepSeek Key Grabber</span>
+          </a>
+          <div class="drag-hint">DeepSeek Key Grabber</div>
+          <div class="drag-subhint">1-click copy of your session token</div>
         </div>
-
-        <div id="autocontinue-action-card" class="hero-action-card" style="margin: 0;">
-          <div class="hero-action-body">
-            <a class="bookmarklet-btn" href="${autoContinueBookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
-              <span>Auto-Continue</span>
-            </a>
-            <div class="drag-hint">DeepSeek Auto-Continue</div>
-            <div class="drag-subhint">Auto-clicks "Continue" on long outputs</div>
-          </div>
+        <div class="hero-action-footer">
+          <span><strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
         </div>
-      </div>
-
-      <div class="hero-action-footer" style="border-radius: 6px; border: 1px solid var(--border); margin-bottom: 16px;">
-        <span><strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
-      </div>
-
-      <div style="padding: 12px 16px; border: 1px solid var(--border); border-radius: 6px; background: #fafafa; font-size: 12.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px;">
-        <strong style="color: #000;">Prefer a permanent background script?</strong> You can also install the userscript in <code>userscript/deepseek-auto-continue.user.js</code> via Tampermonkey to auto-press Continue across all DeepSeek tabs automatically.
       </div>
 
       <div class="wizard-nav">

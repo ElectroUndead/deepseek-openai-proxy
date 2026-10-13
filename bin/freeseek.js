@@ -11,6 +11,108 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const os = require("node:os");
+const { exec } = require("node:child_process");
+
+// -----------------------------------------------------------------------------
+// Local Configuration & Persistent Token Storage (~/.freeseek/config.json)
+// -----------------------------------------------------------------------------
+function getConfigFilePath() {
+  return path.join(os.homedir(), ".freeseek", "config.json");
+}
+
+function getStoredToken() {
+  try {
+    const configPath = getConfigFilePath();
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (data && typeof data.token === "string") {
+        return data.token.trim();
+      }
+    }
+  } catch (e) {}
+  return "";
+}
+
+function saveStoredToken(token) {
+  try {
+    let clean = (token || "").trim();
+    while (clean.toLowerCase().startsWith("bearer ")) {
+      clean = clean.substring(7).trim();
+    }
+    if (!clean || clean.length < 10) return false;
+    const dir = path.join(os.homedir(), ".freeseek");
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const configPath = getConfigFilePath();
+    let existing = {};
+    if (fs.existsSync(configPath)) {
+      try { existing = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch(e) {}
+    }
+    existing.token = clean;
+    existing.updatedAt = new Date().toISOString();
+    fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
+    return true;
+  } catch (e) {
+    console.error("Failed to save token:", e);
+    return false;
+  }
+}
+
+function clearStoredToken() {
+  try {
+    const configPath = getConfigFilePath();
+    if (fs.existsSync(configPath)) {
+      let existing = {};
+      try { existing = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch(e) {}
+      delete existing.token;
+      fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
+    }
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function openBrowser(url) {
+  if (process.env.NO_BROWSER || process.argv.includes("--no-browser")) return;
+  const platform = process.platform;
+  let cmd;
+  if (platform === "win32") {
+    cmd = `start "" "${url}"`;
+  } else if (platform === "darwin") {
+    cmd = `open "${url}"`;
+  } else {
+    cmd = `xdg-open "${url}"`;
+  }
+  exec(cmd, () => {});
+}
+
+async function testDeepSeekToken(token) {
+  const clean = (token || "").trim();
+  const startTime = Date.now();
+  const resp = await fetch("https://chat.deepseek.com/api/v0/chat_session/create", {
+    method: "POST",
+    headers: {
+      "authorization": `Bearer ${clean}`,
+      "content-type": "application/json",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+      "origin": "https://chat.deepseek.com",
+      "referer": "https://chat.deepseek.com/",
+    },
+    body: JSON.stringify({ agent: "chat" }),
+  });
+  const latency = Date.now() - startTime;
+  if (!resp.ok) {
+    throw new Error(`DeepSeek returned HTTP ${resp.status}: ${resp.statusText}`);
+  }
+  const data = await resp.json();
+  if (data.code !== 0 && data.code !== undefined && data.msg) {
+    throw new Error(data.msg);
+  }
+  return { success: true, latency };
+}
 
 // -----------------------------------------------------------------------------
 // WebAssembly PoW Solver
@@ -470,49 +572,6 @@ function emitStreamDelta(res, completionId, model, created, fragmentType, text) 
   });
 }
 
-// -----------------------------------------------------------------------------
-// Auto-Continue Verification Engine Helpers
-// -----------------------------------------------------------------------------
-function checkNeedsContinuation(text) {
-  if (!text || text.trim().length === 0) return { needsContinuation: false, reason: "empty" };
-  const trimmed = text.trim();
-
-  // 1. Unclosed code block: count of ``` is odd
-  const fenceMatches = text.match(/```/g);
-  if (fenceMatches && (fenceMatches.length % 2 !== 0)) {
-    return { needsContinuation: true, reason: "unclosed_code_fence" };
-  }
-
-  // 2. Trailing syntax / tokens indicating mid-sentence or mid-expression cutoff
-  const abruptEnding = /[,(=+\-*\/&|<>:;{\[\]\\]\s*$/.test(trimmed) ||
-                       /\b(and|or|then|because|with|if|function|const|let|var|def|class|return)\s*$/i.test(trimmed);
-  if (abruptEnding) {
-    return { needsContinuation: true, reason: "abrupt_ending" };
-  }
-
-  // 3. Substantive answers (> 300 chars) that ended without terminal punctuation
-  const lastChar = trimmed.slice(-1);
-  const endsWithPunctuation = ['.', '!', '?', '"', "'", '`', '}', ')', '>', '#'].includes(lastChar) || trimmed.endsWith('```');
-  if (trimmed.length > 300 && !endsWithPunctuation) {
-    return { needsContinuation: true, reason: "missing_terminal_punctuation" };
-  }
-
-  // 4. Substantive answers (> 600 chars) to verify with DeepSeek if everything has been completed
-  if (trimmed.length > 600) {
-    return { needsContinuation: true, reason: "verify_completeness" };
-  }
-
-  return { needsContinuation: false, reason: "complete" };
-}
-
-function isContinuationCompleteSignal(text) {
-  if (!text) return false;
-  const t = text.trim().toLowerCase();
-  if (t === "[complete]" || t.startsWith("[complete]")) return true;
-  if (/^yes[,\.\s]+(the\s+answer\s+is\s+complete|everything\s+has\s+been\s+given|all\s+code\s+is\s+complete|it\s+is\s+complete)/i.test(t)) return true;
-  if (/^(the\s+answer\s+is\s+complete|everything\s+is\s+complete|all\s+requested\s+information\s+has\s+been\s+provided)\.?$/i.test(t)) return true;
-  return false;
-}
 
 // -----------------------------------------------------------------------------
 // HTTP Request Router & Handler
@@ -734,144 +793,6 @@ async function handleChatCompletion(body, token, res) {
           }
         }
 
-        // Auto-Continue Verification Engine: Check if DeepSeek finished or if more is needed
-        let continuationCount = 0;
-        let alreadyVerifiedCompleteness = false;
-        const MAX_CONTINUATIONS = 3;
-
-        while (continuationCount < MAX_CONTINUATIONS) {
-          const checkResult = checkNeedsContinuation(accumulatedResponseText);
-          if (!checkResult.needsContinuation) break;
-          if (checkResult.reason === "verify_completeness" && alreadyVerifiedCompleteness) break;
-
-          continuationCount++;
-          if (checkResult.reason === "verify_completeness") {
-            alreadyVerifiedCompleteness = true;
-          }
-
-          console.log(`  [Auto-Continue] Turn ${continuationCount}: Verifying completion with DeepSeek (${checkResult.reason})...`);
-
-          let continuationPrompt;
-          if (checkResult.reason === "unclosed_code_fence") {
-            continuationPrompt = `Your previous output stopped abruptly inside an unclosed code block. Continue writing the code immediately from the exact character where you left off. Do not repeat previous lines and do not provide any greeting or explanation. Output only the continuation until the code block is closed.`;
-          } else if (checkResult.reason === "abrupt_ending" || checkResult.reason === "missing_terminal_punctuation") {
-            continuationPrompt = `Your previous response stopped before finishing. Continue directly from where you left off. Do not repeat previous text and do not add conversational preamble. Complete the remaining answer.`;
-          } else {
-            continuationPrompt = `Has everything been given for the user's request? Is the answer complete and should we stop?
-- If YES (the answer is completely finished with nothing missing or cut off): Reply with ONLY "[COMPLETE]" and nothing else.
-- If NO (the answer is incomplete, was truncated, or parts remain): Do not say "[COMPLETE]". Continue writing the remaining answer/code immediately where you left off until it is 100% complete.`;
-          }
-
-          try {
-            const contResult = await dispatchDeepSeekCompletion(
-              continuationPrompt,
-              messages,
-              tools,
-              baseHeaders,
-              token,
-              false,
-              [],
-              { sessionId: activeSessionId, parentMessageId: lastResponseMsgId }
-            );
-
-            const contReader = contResult.response.body.getReader();
-            let contBuffer = "";
-            let contAccumulated = "";
-            let contInitialBuffer = "";
-            let contIsComplete = false;
-            let contStreamStarted = false;
-            let contCurrentFragment = "RESPONSE";
-
-            while (true) {
-              const { value, done } = await contReader.read();
-              if (done) break;
-
-              contBuffer += decoder.decode(value, { stream: true });
-              const contLines = contBuffer.split("\n");
-              contBuffer = contLines.pop();
-
-              for (const line of contLines) {
-                if (line.startsWith("event: close") || line.includes("[DONE]")) break;
-                if (line.startsWith("data:")) {
-                  const dataStr = line.substring(5).trim();
-                  if (!dataStr) continue;
-
-                  try {
-                    const data = JSON.parse(dataStr);
-                    if (data.response_message_id) {
-                      lastResponseMsgId = data.response_message_id;
-                    }
-                    if (data.v && data.v.response && (data.v.response.message_id || data.v.response.id)) {
-                      lastResponseMsgId = data.v.response.message_id || data.v.response.id || lastResponseMsgId;
-                    }
-
-                    let chunkText = "";
-                    if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
-                      contCurrentFragment = data.v.response.fragments[0].type || "RESPONSE";
-                      chunkText = data.v.response.fragments[0].content || "";
-                    } else if (data.p === "response/fragments" && data.o === "APPEND" && Array.isArray(data.v) && data.v.length > 0) {
-                      contCurrentFragment = data.v[0].type || "RESPONSE";
-                      chunkText = data.v[0].content || "";
-                    } else if (data.v && typeof data.v === "string" && (!data.p || !data.p.includes("status"))) {
-                      chunkText = data.v;
-                    }
-
-                    if (!chunkText || contCurrentFragment === "THINK") continue;
-
-                    contAccumulated += chunkText;
-
-                    if (!contStreamStarted) {
-                      contInitialBuffer += chunkText;
-                      if (contInitialBuffer.length > 15 || contInitialBuffer.includes("\n") || contInitialBuffer.includes("]")) {
-                        if (isContinuationCompleteSignal(contInitialBuffer)) {
-                          contIsComplete = true;
-                          break;
-                        } else {
-                          contStreamStarted = true;
-                          let toEmit = contInitialBuffer;
-                          if (checkResult.reason === "unclosed_code_fence") {
-                            toEmit = toEmit.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
-                          }
-                          toEmit = toEmit.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
-                          if (toEmit) {
-                            emitStreamDelta(res, completionId, model, createdTimestamp, "RESPONSE", toEmit);
-                            hasEmittedContent = true;
-                          }
-                        }
-                      }
-                    } else {
-                      emitStreamDelta(res, completionId, model, createdTimestamp, "RESPONSE", chunkText);
-                      hasEmittedContent = true;
-                    }
-                  } catch (e) {}
-                }
-              }
-              if (contIsComplete) break;
-            }
-
-            if (contIsComplete || isContinuationCompleteSignal(contAccumulated)) {
-              console.log(`  [Auto-Continue] DeepSeek verified answer is 100% complete.`);
-              break;
-            }
-
-            if (!contStreamStarted && contInitialBuffer && !isContinuationCompleteSignal(contInitialBuffer)) {
-              let toEmit = contInitialBuffer;
-              if (checkResult.reason === "unclosed_code_fence") {
-                toEmit = toEmit.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
-              }
-              toEmit = toEmit.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
-              if (toEmit) {
-                emitStreamDelta(res, completionId, model, createdTimestamp, "RESPONSE", toEmit);
-                hasEmittedContent = true;
-              }
-            }
-
-            accumulatedResponseText += "\n" + contAccumulated;
-          } catch (contErr) {
-            console.warn(`  [Auto-Continue] Continuation attempt error:`, contErr.message);
-            break;
-          }
-        }
 
         if (!hasEmittedContent) {
           const fallback = accumulatedResponseText.trim() || accumulatedThinkText.trim() || " ";
@@ -971,80 +892,6 @@ async function handleChatCompletion(body, token, res) {
         toolCalls = dsml.toolCalls;
         finishReason = "tool_calls";
       } else {
-        // Auto-Continue verification for non-streaming
-        let nonStreamContCount = 0;
-        let nonStreamVerified = false;
-        while (nonStreamContCount < 2) {
-          const checkResult = checkNeedsContinuation(responseAccumulated);
-          if (!checkResult.needsContinuation) break;
-          if (checkResult.reason === "verify_completeness" && nonStreamVerified) break;
-
-          nonStreamContCount++;
-          if (checkResult.reason === "verify_completeness") nonStreamVerified = true;
-
-          let continuationPrompt;
-          if (checkResult.reason === "unclosed_code_fence") {
-            continuationPrompt = `Your previous output stopped abruptly inside an unclosed code block. Continue writing the code immediately from the exact character where you left off. Do not repeat previous lines and do not provide any greeting or explanation. Output only the continuation until the code block is closed.`;
-          } else if (checkResult.reason === "abrupt_ending" || checkResult.reason === "missing_terminal_punctuation") {
-            continuationPrompt = `Your previous response stopped before finishing. Continue directly from where you left off. Do not repeat previous text and do not add conversational preamble. Complete the remaining answer.`;
-          } else {
-            continuationPrompt = `Has everything been given for the user's request? Is the answer complete and should we stop?
-- If YES (the answer is completely finished with nothing missing or cut off): Reply with ONLY "[COMPLETE]" and nothing else.
-- If NO (the answer is incomplete, was truncated, or parts remain): Do not say "[COMPLETE]". Continue writing the remaining answer/code immediately where you left off until it is 100% complete.`;
-          }
-
-          try {
-            const contResult = await dispatchDeepSeekCompletion(
-              continuationPrompt,
-              messages,
-              tools,
-              baseHeaders,
-              token,
-              false,
-              [],
-              { sessionId: activeSessionId, parentMessageId: lastResponseMsgId }
-            );
-
-            const contReader = contResult.response.body.getReader();
-            let contBuf = "";
-            let contText = "";
-
-            while (true) {
-              const { value, done } = await contReader.read();
-              if (done) break;
-              contBuf += decoder.decode(value, { stream: true });
-              const cLines = contBuf.split("\n");
-              contBuf = cLines.pop();
-              for (const l of cLines) {
-                if (l.startsWith("data:")) {
-                  const s = l.substring(5).trim();
-                  if (!s) continue;
-                  try {
-                    const d = JSON.parse(s);
-                    if (d.v && typeof d.v === "string" && (!d.p || !d.p.includes("status"))) {
-                      contText += d.v;
-                    } else if (d.p === "response/fragments" && Array.isArray(d.v) && d.v[0]?.content) {
-                      contText += d.v[0].content;
-                    }
-                  } catch(e) {}
-                }
-              }
-            }
-
-            if (isContinuationCompleteSignal(contText)) break;
-
-            let toAppend = contText;
-            if (checkResult.reason === "unclosed_code_fence") {
-              toAppend = toAppend.replace(/^```[a-zA-Z0-9_-]*\r?\n/, "");
-            }
-            toAppend = toAppend.replace(/^(Sure,\s*(here\s*is\s*the\s*rest|continuing)\b[^\n]*\r?\n+|Here\s*is\s*the\s*(remaining|rest)[^\n]*\r?\n+)/i, "");
-            if (toAppend) {
-              responseAccumulated += "\n" + toAppend;
-            }
-          } catch(e) {
-            break;
-          }
-        }
         messageContent = responseAccumulated;
       }
 
@@ -1098,12 +945,99 @@ function startServer(port = 8787) {
       return;
     }
 
+    // Health & Status endpoint
     if (url.pathname === "/health" || url.pathname === "/api/status") {
+      const storedToken = getStoredToken();
+      const activeToken = storedToken || process.env.DEEPSEEK_AUTH_TOKEN || "";
+      const hasToken = !!activeToken && activeToken.length >= 10;
+      const masked = hasToken
+        ? `${activeToken.substring(0, 6)}...${activeToken.substring(activeToken.length - 4)}`
+        : "";
       res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
-      res.end(JSON.stringify({ status: "ok", mode: "local-node", timestamp: new Date().toISOString() }));
+      res.end(JSON.stringify({
+        status: "ok",
+        mode: "local-node",
+        hasToken,
+        tokenPreview: masked,
+        port,
+        configPath: getConfigFilePath(),
+        timestamp: new Date().toISOString(),
+      }));
       return;
     }
 
+    // Token Management API: Save Token
+    if (url.pathname === "/api/save-token" && req.method === "POST") {
+      let bodyStr = "";
+      req.on("data", (chunk) => { bodyStr += chunk; });
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(bodyStr);
+          const token = data.token;
+          if (!token || typeof token !== "string" || token.trim().length < 10) {
+            res.writeHead(400, { "Content-Type": "application/json", ...CORS_HEADERS });
+            res.end(JSON.stringify({ success: false, error: "Invalid token: must be at least 10 characters." }));
+            return;
+          }
+          const saved = saveStoredToken(token);
+          if (saved) {
+            console.log(`[${new Date().toLocaleTimeString()}] DeepSeek token saved to ${getConfigFilePath()}`);
+            res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+            res.end(JSON.stringify({ success: true, message: "Token saved successfully!" }));
+          } else {
+            res.writeHead(500, { "Content-Type": "application/json", ...CORS_HEADERS });
+            res.end(JSON.stringify({ success: false, error: "Failed to write configuration file." }));
+          }
+        } catch (e) {
+          res.writeHead(400, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.end(JSON.stringify({ success: false, error: "Invalid JSON: " + e.message }));
+        }
+      });
+      return;
+    }
+
+    // Token Management API: Clear Token
+    if (url.pathname === "/api/clear-token" && req.method === "POST") {
+      clearStoredToken();
+      console.log(`[${new Date().toLocaleTimeString()}] DeepSeek token disconnected`);
+      res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+      res.end(JSON.stringify({ success: true, message: "Token disconnected." }));
+      return;
+    }
+
+    // Token Management API: Test Token
+    if (url.pathname === "/api/test-token" && req.method === "POST") {
+      let bodyStr = "";
+      req.on("data", (chunk) => { bodyStr += chunk; });
+      req.on("end", async () => {
+        let testTok = "";
+        try {
+          if (bodyStr.trim()) {
+            const data = JSON.parse(bodyStr);
+            if (data.token) testTok = data.token;
+          }
+        } catch (e) {}
+        if (!testTok) {
+          testTok = getStoredToken() || process.env.DEEPSEEK_AUTH_TOKEN || "";
+        }
+        if (!testTok || testTok.length < 10) {
+          res.writeHead(400, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.end(JSON.stringify({ success: false, error: "No token saved or provided to test." }));
+          return;
+        }
+        try {
+          const result = await testDeepSeekToken(testTok);
+          res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.end(JSON.stringify({ success: true, latency: result.latency }));
+        } catch (testErr) {
+          res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.end(JSON.stringify({ success: false, error: testErr.message }));
+        }
+      });
+      return;
+    }
+
+    // Models listing
     if (url.pathname === "/v1/models" || url.pathname === "/models") {
       res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
       res.end(JSON.stringify({
@@ -1116,6 +1050,7 @@ function startServer(port = 8787) {
       return;
     }
 
+    // OpenAI Chat Completions
     if (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions") {
       const authHeader = req.headers["authorization"] || "";
       let callerToken = authHeader.trim();
@@ -1123,16 +1058,29 @@ function startServer(port = 8787) {
         callerToken = callerToken.substring(7).trim();
       }
 
-      if (!callerToken && process.env.DEEPSEEK_AUTH_TOKEN) {
-        callerToken = process.env.DEEPSEEK_AUTH_TOKEN.trim();
+      // Check if caller sent a dummy key or if we should use stored token
+      const isDummy = !callerToken ||
+        callerToken.toLowerCase() === "dummy" ||
+        callerToken.toLowerCase() === "sk-dummy" ||
+        callerToken.toLowerCase() === "none" ||
+        callerToken.toLowerCase() === "test" ||
+        callerToken.toLowerCase() === "freeseek" ||
+        callerToken.length < 20;
+
+      let effectiveToken = "";
+      if (!isDummy) {
+        effectiveToken = callerToken;
+      } else {
+        effectiveToken = process.env.DEEPSEEK_AUTH_TOKEN || getStoredToken();
       }
 
-      if (!callerToken || callerToken.length < 10) {
+      if (!effectiveToken || effectiveToken.length < 10) {
         res.writeHead(401, { "Content-Type": "application/json", ...CORS_HEADERS });
         res.end(JSON.stringify({
           error: {
-            message: "Missing DeepSeek token. Please set your API Key in Cursor or provide DEEPSEEK_AUTH_TOKEN.",
+            message: `No DeepSeek token found! Please open http://127.0.0.1:${port} to connect your token, or set DEEPSEEK_AUTH_TOKEN.`,
             type: "auth_required",
+            dashboard_url: `http://127.0.0.1:${port}`,
           },
         }));
         return;
@@ -1145,7 +1093,7 @@ function startServer(port = 8787) {
           const body = JSON.parse(bodyStr);
           const modelName = body.model || "deepseek-reasoner";
           console.log(`[${new Date().toLocaleTimeString()}] Chat request -> model: ${modelName}, stream: ${body.stream === true}`);
-          await handleChatCompletion(body, `Bearer ${callerToken}`, res);
+          await handleChatCompletion(body, `Bearer ${effectiveToken}`, res);
         } catch (err) {
           console.error("Request parse error:", err);
           res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
@@ -1158,7 +1106,7 @@ function startServer(port = 8787) {
               index: 0,
               message: {
                 role: "assistant",
-                content: "DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.",
+                content: "DeepSeek's servers are currently experiencing high traffic. Please send your message again in a moment.",
               },
               finish_reason: "stop",
             }],
@@ -1168,60 +1116,488 @@ function startServer(port = 8787) {
       return;
     }
 
-    // Default HTML Status page
-    const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}alert('Copied DeepSeek API Key to clipboard!');}catch(e){alert('Key NOT copied: '+e);}})();`;
-    const autoContinueBookmarkletCode = `javascript:(function(){if(window.__deepseek_auto_continue_active){alert('DeepSeek Auto-Continue is already active on this tab!');return;}window.__deepseek_auto_continue_active=true;let lastClick=0;function clickContinue(){if(Date.now()-lastClick<2000)return false;const els=document.querySelectorAll('.ds-button__content, button, [role=button], .ds-button');for(const el of els){if((el.textContent||'').trim().toLowerCase()==='continue'){const btn=el.closest('[role=button]')||el.closest('button')||el;if(btn&&!btn.disabled&&btn.offsetParent!==null){console.log('[Auto-Continue] Clicked Continue button');lastClick=Date.now();btn.click();try{btn.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,view:window}));}catch(e){}return true;}}}return false;}setInterval(clickContinue,400);new MutationObserver(clickContinue).observe(document.body,{childList:true,subtree:true});const b=document.createElement('div');b.textContent='Auto-Continue Active';b.style.cssText='position:fixed;bottom:16px;left:16px;background:#111;color:#fff;font-family:sans-serif;font-size:11px;font-weight:600;padding:6px 12px;border-radius:14px;z-index:999999;box-shadow:0 2px 8px rgba(0,0,0,0.2);pointer-events:none;';document.body.appendChild(b);alert('Auto-Continue is now active! Continue buttons will be clicked automatically.');})();`;
+    // Local Setup & Dashboard HTML (Monochrome, Minimalist, Zero Emojis)
+    const syncBookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Token NOT found: Please log in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}fetch('http://127.0.0.1:${port}/api/save-token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t}),mode:'cors'}).then(function(res){if(res.ok){alert('Connected to local Freeseek! Your token is synced. You can now use Cursor with API Key: dummy');}else{alert('Token copied to clipboard! (Could not auto-sync to local port ${port})');}}).catch(function(){alert('Token copied to clipboard! Paste it into the Freeseek setup dashboard at http://127.0.0.1:${port}');});}catch(e){alert('Error: '+e);}})();`;
 
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...CORS_HEADERS });
     res.end(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>freeseek - Local Proxy</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>freeseek - Local Proxy Dashboard</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #fff; color: #000; padding: 40px; line-height: 1.6; }
-    .box { border: 2px solid #000; padding: 24px; max-width: 600px; margin: 0 auto; border-radius: 8px; }
-    h1 { font-size: 20px; margin-top: 0; text-transform: uppercase; }
-    code { background: #f0f0f0; padding: 2px 6px; font-family: monospace; border-radius: 3px; }
-    .btn { display: inline-block; padding: 8px 14px; background: #000; color: #fff; text-decoration: none; border-radius: 4px; font-weight: 600; font-size: 12px; margin-right: 8px; }
-    .btn:hover { background: #262626; }
+    :root {
+      --bg: #ffffff;
+      --card-bg: #ffffff;
+      --border: #e5e5e5;
+      --border-dark: #111111;
+      --text: #0a0a0a;
+      --text-muted: #666666;
+      --text-subtle: #888888;
+      --code-bg: #f5f5f5;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.6;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 680px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      text-transform: uppercase;
+    }
+    .logo-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+    }
+    .status-badge.connected {
+      background: #000000;
+      color: #ffffff;
+      border-color: #000000;
+    }
+    .status-badge.disconnected {
+      background: #ffffff;
+      color: var(--text-muted);
+      border-color: var(--border);
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      background: #000000;
+      color: #ffffff;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    p {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-bottom: 14px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+      font-family: inherit;
+    }
+    .btn-primary {
+      background: #000000;
+      color: #ffffff;
+      border-color: #000000;
+    }
+    .btn-primary:hover {
+      background: #262626;
+    }
+    .btn-outline {
+      background: #ffffff;
+      color: var(--text);
+      border-color: var(--border-dark);
+    }
+    .btn-outline:hover {
+      background: #f5f5f5;
+    }
+    .btn-danger {
+      background: #ffffff;
+      color: #000000;
+      border-color: var(--border);
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+    .btn-danger:hover {
+      border-color: #000000;
+    }
+    .btn-copy {
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .btn-copy:hover {
+      border-color: #000000;
+    }
+    .bookmarklet-box {
+      border: 2px dashed #000000;
+      border-radius: 8px;
+      padding: 20px;
+      text-align: center;
+      background: #fafafa;
+      margin: 14px 0;
+    }
+    .bookmarklet-btn {
+      display: inline-block;
+      padding: 10px 20px;
+      background: #000000;
+      color: #ffffff;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: grab;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .bookmarklet-btn:active {
+      cursor: grabbing;
+    }
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .input-field {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      outline: none;
+    }
+    .input-field:focus {
+      border-color: #000000;
+    }
+    .config-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    .config-table tr {
+      border-bottom: 1px solid var(--border);
+    }
+    .config-table tr:last-child {
+      border-bottom: none;
+    }
+    .config-table td {
+      padding: 10px 0;
+      vertical-align: middle;
+    }
+    .config-label {
+      font-weight: 600;
+      width: 140px;
+    }
+    .config-val {
+      font-family: var(--font-mono);
+      background: var(--code-bg);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #000000;
+      color: #ffffff;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      display: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+    }
+    kbd {
+      background: #eee;
+      border: 1px solid #ccc;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+    }
   </style>
 </head>
 <body>
-  <div class="box">
-    <h1>freeseek Local Proxy</h1>
-    <p>Status: <strong>Running locally on http://127.0.0.1:${port}</strong></p>
-    <hr style="border: 1px solid #000; margin: 20px 0;">
-    <h3>Cursor / IDE Settings:</h3>
-    <p><strong>Base URL:</strong> <code>http://127.0.0.1:${port}/v1</code></p>
-    <p><strong>API Key:</strong> <code>your DeepSeek token</code></p>
-    <p><strong>Models:</strong> <code>deepseek-reasoner</code>, <code>deepseek-chat</code></p>
-    <hr style="border: 1px solid #000; margin: 20px 0;">
-    <h3>Browser Helper Tools:</h3>
-    <p style="font-size: 13px; color: #555; margin-bottom: 10px;">Drag these to your bookmarks bar for 1-click use on chat.deepseek.com:</p>
-    <div style="margin: 12px 0;">
-      <a class="btn" href="${bookmarkletCode}">Key Grabber</a>
-      <a class="btn" href="${autoContinueBookmarkletCode}">Auto-Continue</a>
+  <div class="container">
+    <header>
+      <div>
+        <div class="logo-title">freeseek</div>
+        <div class="logo-sub">Local DeepSeek to OpenAI Proxy</div>
+      </div>
+      <div id="status-badge" class="status-badge disconnected">Checking status...</div>
+    </header>
+
+    <!-- Overview Card -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div style="font-size: 13px; color: var(--text-muted);">Current Local Connection</div>
+          <div style="font-size: 15px; font-weight: 600; margin-top: 2px;" id="token-status-text">Checking stored credentials...</div>
+        </div>
+        <div>
+          <button id="clear-btn" class="btn btn-danger" style="display: none;" onclick="disconnectToken()">Disconnect</button>
+        </div>
+      </div>
     </div>
-    <hr style="border: 1px solid #000; margin: 20px 0;">
-    <p style="font-size: 12px; color: #666;">Running natively on your CPU with unlimited WebAssembly PoW capability and zero Cloudflare limits.</p>
+
+    <!-- Step 1: Open DeepSeek -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-num">1</span>
+        <span>Open DeepSeek & Sign In</span>
+      </div>
+      <p>Log in to your account at chat.deepseek.com. If you do not have an account yet, create one for free in 10 seconds.</p>
+      <a href="https://chat.deepseek.com" target="_blank" rel="noopener noreferrer" class="btn btn-outline">
+        Open chat.deepseek.com &rarr;
+      </a>
+    </div>
+
+    <!-- Step 2: Sync Account -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-num">2</span>
+        <span>Sync Your Account to Local Freeseek</span>
+      </div>
+      <p>Drag this button up to your browser's Bookmarks bar. While on chat.deepseek.com, click it once to automatically sync your session with this local server:</p>
+
+      <div class="bookmarklet-box">
+        <a class="bookmarklet-btn" href="${syncBookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
+          Sync Token with Local Freeseek
+        </a>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">
+          Bookmarks bar hidden? Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac).
+        </div>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <span style="font-size: 12.5px; font-weight: 600;">Or enter token manually:</span>
+        <div class="input-group">
+          <input type="password" id="manual-token" class="input-field" placeholder="Paste userToken here (optional)" />
+          <button class="btn btn-primary" onclick="saveManualToken()">Save Token</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Editor Settings -->
+    <div class="card">
+      <div class="card-title">
+        <span class="step-num">3</span>
+        <span>Configure Cursor / VS Code / Roo / Continue</span>
+      </div>
+      <p>In your editor settings, configure an OpenAI-Compatible provider with these values. Since your token is saved locally on your computer, you do not need to paste long tokens into your editor.</p>
+
+      <table class="config-table">
+        <tr>
+          <td class="config-label">OpenAI Base URL</td>
+          <td><span class="config-val" id="val-baseurl">http://127.0.0.1:${port}/v1</span></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('http://127.0.0.1:${port}/v1', this)">Copy</button></td>
+        </tr>
+        <tr>
+          <td class="config-label">API Key</td>
+          <td><span class="config-val" id="val-apikey">dummy</span></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('dummy', this)">Copy</button></td>
+        </tr>
+        <tr>
+          <td class="config-label">Reasoning Model</td>
+          <td><span class="config-val" id="val-model-r1">deepseek-reasoner</span></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('deepseek-reasoner', this)">Copy</button></td>
+        </tr>
+        <tr>
+          <td class="config-label">Chat Model</td>
+          <td><span class="config-val" id="val-model-v3">deepseek-chat</span></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('deepseek-chat', this)">Copy</button></td>
+        </tr>
+      </table>
+    </div>
+
+    <!-- Connection Tester -->
+    <div class="card">
+      <div class="card-title">
+        <span>Test Connection</span>
+      </div>
+      <p>Test that this local proxy can communicate with DeepSeek using your stored credentials:</p>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <button id="test-btn" class="btn btn-outline" onclick="testConnection()">Run Connection Test</button>
+        <span id="test-status" style="font-size: 13px; color: var(--text-muted);"></span>
+      </div>
+    </div>
+
+    <div style="text-align: center; font-size: 12px; color: var(--text-subtle); margin-top: 30px;">
+      Running locally on your CPU with native WebAssembly PoW solving and DSML tool calling.
+    </div>
   </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    async function loadStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        const badge = document.getElementById('status-badge');
+        const text = document.getElementById('token-status-text');
+        const clearBtn = document.getElementById('clear-btn');
+
+        if (data.hasToken) {
+          badge.textContent = 'Connected (' + data.tokenPreview + ')';
+          badge.className = 'status-badge connected';
+          text.textContent = 'Token saved and active (' + data.tokenPreview + ')';
+          clearBtn.style.display = 'inline-block';
+        } else {
+          badge.textContent = 'Needs Token';
+          badge.className = 'status-badge disconnected';
+          text.textContent = 'No token saved. Complete Step 1 & 2 above to connect.';
+          clearBtn.style.display = 'none';
+        }
+      } catch (e) {
+        document.getElementById('status-badge').textContent = 'Server Offline';
+      }
+    }
+
+    async function saveManualToken() {
+      const input = document.getElementById('manual-token');
+      const val = (input.value || '').trim();
+      if (!val || val.length < 10) {
+        alert('Please enter a valid DeepSeek userToken.');
+        return;
+      }
+      try {
+        const res = await fetch('/api/save-token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: val })
+        });
+        const d = await res.json();
+        if (d.success) {
+          input.value = '';
+          showToast('Token saved successfully! You are ready to use Cursor.');
+          loadStatus();
+        } else {
+          alert('Failed to save token: ' + (d.error || 'Unknown error'));
+        }
+      } catch (e) {
+        alert('Error communicating with local server: ' + e);
+      }
+    }
+
+    async function disconnectToken() {
+      if (!confirm('Disconnect saved DeepSeek token?')) return;
+      try {
+        await fetch('/api/clear-token', { method: 'POST' });
+        showToast('Token disconnected.');
+        loadStatus();
+      } catch (e) {
+        alert('Error: ' + e);
+      }
+    }
+
+    async function testConnection() {
+      const btn = document.getElementById('test-btn');
+      const status = document.getElementById('test-status');
+      btn.disabled = true;
+      status.textContent = 'Testing connection to DeepSeek...';
+
+      try {
+        const res = await fetch('/api/test-token', { method: 'POST' });
+        const d = await res.json();
+        if (d.success) {
+          status.style.color = '#000';
+          status.textContent = 'Success! Connected to DeepSeek in ' + d.latency + 'ms.';
+        } else {
+          status.style.color = '#d00';
+          status.textContent = 'Connection failed: ' + (d.error || 'Authentication error');
+        }
+      } catch (e) {
+        status.style.color = '#d00';
+        status.textContent = 'Test failed: ' + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function copyValue(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = 'Copied!';
+        setTimeout(() => { btn.textContent = orig; }, 1500);
+      });
+    }
+
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.display = 'block';
+      setTimeout(() => { t.style.display = 'none'; }, 3000);
+    }
+
+    window.addEventListener('DOMContentLoaded', loadStatus);
+  </script>
 </body>
 </html>`);
   });
 
   server.listen(port, "127.0.0.1", () => {
+    const hasToken = !!(getStoredToken() || process.env.DEEPSEEK_AUTH_TOKEN);
     console.log("");
     console.log("============================================================");
-    console.log("  freeseek local proxy active on http://127.0.0.1:" + port);
+    console.log("  freeseek - Local DeepSeek OpenAI Proxy");
     console.log("============================================================");
-    console.log("  Cursor / IDE Configuration:");
-    console.log("    Base URL: http://127.0.0.1:" + port + "/v1");
-    console.log("    API Key:  your DeepSeek user token");
-    console.log("    Models:   deepseek-reasoner, deepseek-chat");
+    console.log("  Local Dashboard: http://127.0.0.1:" + port);
+    console.log("  OpenAI Base URL: http://127.0.0.1:" + port + "/v1");
+    console.log("  API Key:         " + (hasToken ? "dummy (token saved locally)" : "Requires DeepSeek Token (open dashboard)"));
+    console.log("  Models:          deepseek-reasoner, deepseek-chat");
+    console.log("  Stored Config:   " + getConfigFilePath());
     console.log("============================================================");
     console.log("  Press Ctrl+C to stop.");
     console.log("");
+
+    openBrowser("http://127.0.0.1:" + port);
   });
 }
 
