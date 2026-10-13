@@ -326,83 +326,77 @@ export default {
         return new Response("Method Not Allowed", { status: 405, headers: getCorsHeaders() });
       }
 
-      // Extract token dynamically from request Authorization header or x-api-key
-      const authHeader = request.headers.get("authorization") || request.headers.get("x-api-key") || "";
-      let callerToken = null;
-
-      let rawToken = authHeader.trim();
-      while (rawToken.toLowerCase().startsWith("bearer ")) {
-        rawToken = rawToken.substring(7).trim();
-      }
-
-      // Check if user pasted a JSON string like {"token":"Bearer ..."}
-      if (rawToken.startsWith("{")) {
-        try {
-          const parsed = JSON.parse(rawToken);
-          if (parsed.token) {
-            rawToken = parsed.token.trim();
-            while (rawToken.toLowerCase().startsWith("bearer ")) {
-              rawToken = rawToken.substring(7).trim();
-            }
-          }
-        } catch(e) {}
-      }
-
-      if (rawToken.length > 20 && !rawToken.startsWith("sk-dummy") && !rawToken.startsWith("dummy")) {
-        callerToken = `Bearer ${rawToken}`;
-      }
-
-      // Fallback if self-hosted with private env var
-      if (!callerToken && env.DEEPSEEK_AUTH_TOKEN && env.DEEPSEEK_AUTH_TOKEN.length > 20) {
-        callerToken = env.DEEPSEEK_AUTH_TOKEN.trim();
-        if (!callerToken.startsWith("Bearer ")) {
-          callerToken = `Bearer ${callerToken}`;
-        }
-      }
-
-      if (!callerToken) {
-        return new Response(
-          JSON.stringify({
-            error: {
-              message: "Missing DeepSeek token. Please set your API Key to your DeepSeek token in Cursor/IDE settings! Use the 1-click bookmarklet on our website to grab your token.",
-              type: "auth_required",
-            },
-          }),
-          { status: 401, headers: { "Content-Type": "application/json", ...getCorsHeaders() } }
-        );
-      }
-
+      let isStream = false;
       try {
-        const body = await request.json();
-        return await handleChatCompletion(body, callerToken);
-      } catch (err) {
-        console.error("Top-level chat completion error:", err);
-        return new Response(
-          JSON.stringify({
-            id: "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").substring(0, 16),
-            object: "chat.completion",
-            created: Math.floor(Date.now() / 1000),
-            model: "deepseek-reasoner",
-            choices: [
-              {
-                index: 0,
-                message: {
-                  role: "assistant",
-                  content: "DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.",
-                },
-                finish_reason: "stop",
-              },
-            ],
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-              ...getCorsHeaders(),
-            },
+        const cloned = request.clone();
+        const body = await cloned.json();
+        isStream = body && body.stream === true;
+      } catch (e) {}
+
+      const localGuideMsg = "DeepSeek Proof-of-Work (PoW) challenges require local CPU computation and cannot be solved reliably within Cloudflare Worker 10ms CPU limits.\n\nPlease run freeseek locally on your computer with a single command:\n\n  npx freeseek\n\nOnce running, update your IDE settings:\n- Base URL: http://127.0.0.1:8787/v1\n- API Key: dummy\n- Model: deepseek-reasoner or deepseek-chat\n\nVisit https://deepseek-setup.antigravity-cloudflare-worker.workers.dev for the complete setup guide.";
+
+      if (isStream) {
+        const encoder = new TextEncoder();
+        const completionId = "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").substring(0, 16);
+        const createdTimestamp = Math.floor(Date.now() / 1000);
+
+        const stream = new ReadableStream({
+          start(controller) {
+            const chunk1 = {
+              id: completionId,
+              object: "chat.completion.chunk",
+              created: createdTimestamp,
+              model: "deepseek-reasoner",
+              choices: [{ index: 0, delta: { role: "assistant", content: localGuideMsg }, finish_reason: null }]
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk1)}\n\n`));
+
+            const chunk2 = {
+              id: completionId,
+              object: "chat.completion.chunk",
+              created: createdTimestamp,
+              model: "deepseek-reasoner",
+              choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+            };
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk2)}\n\n`));
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            controller.close();
           }
-        );
+        });
+
+        return new Response(stream, {
+          headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            ...getCorsHeaders(),
+          }
+        });
       }
+
+      return new Response(
+        JSON.stringify({
+          id: "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").substring(0, 16),
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model: "deepseek-reasoner",
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content: localGuideMsg },
+            finish_reason: "stop"
+          }],
+          error: {
+            message: localGuideMsg,
+            type: "use_local_server",
+            command: "npx freeseek",
+            local_url: "http://127.0.0.1:8787"
+          }
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+        }
+      );
     }
 
     // Models list
@@ -1028,7 +1022,7 @@ async function emitStreamDelta(writer, encoder, completionId, model, created, fr
 // -----------------------------------------------------------------------------
 // 100% NON-TECHY FRIENDLY, WHITE-THEMED, BLACK & WHITE SETUP PAGE (ZERO CODING)
 function renderSetupHtml(origin) {
-  const baseUrl = `${origin}/v1`;
+  const baseUrl = "http://127.0.0.1:8787/v1";
   const bookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Key NOT copied: You are not logged in. Please sign in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}alert('Copied DeepSeek API Key to clipboard!');}catch(e){alert('Key NOT copied: '+e);}})();`;
 
   return `<!DOCTYPE html>
@@ -1542,7 +1536,7 @@ function renderSetupHtml(origin) {
     <div class="header">
       <div class="badge">Zero-Config Free Proxy</div>
       <h1>DeepSeek OpenAI Proxy</h1>
-      <p class="subtitle">Connect DeepSeek R1 & V3 directly into Cursor, VS Code, Cline, or any OpenAI client. No coding, no terminal, and no payment required.</p>
+      <p class="subtitle">Run locally on your machine with zero cloud limits. Direct WebAssembly PoW solving on your CPU with native DSML tool calling for Cursor, VS Code, Cline, and Continue.</p>
     </div>
 
     <!-- Stepper Header -->
@@ -1552,7 +1546,7 @@ function renderSetupHtml(origin) {
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-2" onclick="goToStep(2)">
-        <span class="step-circle">2</span> <span class="step-nav-text">Add Bookmark</span>
+        <span class="step-circle">2</span> <span class="step-nav-text">Run Locally</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-3" onclick="goToStep(3)">
@@ -1596,7 +1590,7 @@ function renderSetupHtml(origin) {
           <div style="margin-top: 8px; line-height: 1.6;">
             1. Click <strong>Star on GitHub</strong> below to open the official repository in a new tab.<br>
             2. On GitHub, click the <strong>Star</strong> button near the top right of the page.<br>
-            3. <strong>Do NOT download, clone, or install anything:</strong> You do NOT need to run any code or commands on your computer. This proxy runs 100% in the cloud for you.<br>
+            3. <strong>Why Run Locally?</strong> DeepSeek requires solving heavy Proof-of-Work (PoW) cryptographic challenges on every request. Cloudflare Workers have a 10ms CPU limit and cannot solve these challenges reliably. Running <code>freeseek</code> locally runs directly on your computer's CPU with zero limits and zero timeouts.<br>
             4. Come back to this tab and click <strong>I Have Starred: Continue to Step 2</strong> to proceed.
           </div>
         </div>
@@ -1620,29 +1614,37 @@ function renderSetupHtml(origin) {
             <span class="star-gate-badge completed-badge">Completed</span>
             <span style="font-size: 13px; font-weight: 600; color: #000000;">GitHub Repository Starred</span>
           </div>
-          <button class="btn-primary" onclick="goToStep(2)">Proceed to Step 2: Add Bookmark →</button>
+          <button class="btn-primary" onclick="goToStep(2)">Proceed to Step 2: Run Locally →</button>
         </div>
       </div>
     </div>
 
-    <!-- STEP 2: Add Bookmark -->
+    <!-- STEP 2: Run Locally -->
     <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Browser Tool: 1-Click Key Grabber</span>
+        <span>Run freeseek Locally (1 Single Command)</span>
       </div>
-      <p class="card-desc">Drag this 1-click tool up to your browser's Bookmarks bar:</p>
+      <p class="card-desc">Run this single command in your terminal to start your local proxy server:</p>
 
-      <div id="bookmarklet-action-card" class="hero-action-card">
+      <div style="background: #000000; color: #ffffff; padding: 18px 20px; border-radius: 8px; font-family: var(--font-mono); font-size: 14px; display: flex; justify-content: space-between; align-items: center; margin: 16px 0;">
+        <span id="cmd-run-freeseek">npx freeseek</span>
+        <button class="btn-copy" style="background: #ffffff; color: #000000; border: none; font-weight: 700;" onclick="copyText('cmd-run-freeseek', 'Command')">Copy Command</button>
+      </div>
+
+      <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+        <div><strong>Windows:</strong> Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>cmd</code>, press Enter, and paste the command above. (Or download the repository and double-click <code>start.bat</code>)</div>
+        <div style="margin-top: 4px;"><strong>Mac / Linux:</strong> Open Terminal and paste the command above.</div>
+        <div style="margin-top: 4px;">As soon as it starts, your browser will automatically open your local setup dashboard at <code>http://127.0.0.1:8787</code>!</div>
+      </div>
+
+      <div id="bookmarklet-action-card" class="hero-action-card" style="margin-top: 14px;">
         <div class="hero-action-body">
           <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
             <span>DeepSeek Key Grabber</span>
           </a>
-          <div class="drag-hint">DeepSeek Key Grabber</div>
-          <div class="drag-subhint">1-click copy of your session token</div>
-        </div>
-        <div class="hero-action-footer">
-          <span><strong>Bookmarks bar hidden?</strong> Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac) to reveal it.</span>
+          <div class="drag-hint">DeepSeek Key Grabber Bookmarklet</div>
+          <div class="drag-subhint">1-click copy of your session token on chat.deepseek.com</div>
         </div>
       </div>
 
@@ -1749,10 +1751,13 @@ function renderSetupHtml(origin) {
       <div style="margin-top: 14px;">
         <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key</label>
         <div class="copy-row">
-          <span id="api-key-display" style="font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 440px; color: var(--text-muted);">
-            (Verified key will appear here, or paste from clipboard)
+          <span id="api-key-display" style="font-family: var(--font-mono); font-weight: 600; color: var(--text);">
+            dummy
           </span>
-          <button class="btn-copy" id="btn-copy-api-key" onclick="copyTokenStep5()">Copy API Key</button>
+          <button class="btn-copy" id="btn-copy-api-key" onclick="copyText('api-key-display', 'API Key')">Copy API Key</button>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+          Credentials are managed locally by freeseek, so any API key works (e.g. <code>dummy</code>)!
         </div>
       </div>
 
@@ -1779,7 +1784,7 @@ function renderSetupHtml(origin) {
 2. Go to "Models" -> "OpenAI".
 3. Turn ON "Override OpenAI Base URL" and enter:
    ${baseUrl}
-4. In "OpenAI API Key", paste your API key.
+4. In "OpenAI API Key", enter: dummy
 5. In model list, add: deepseek-reasoner (or deepseek-chat)</code></pre>
       </div>
 
@@ -1787,7 +1792,7 @@ function renderSetupHtml(origin) {
         <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
 Base URL: ${baseUrl}
-API Key: Paste your API key
+API Key: dummy
 Model ID: deepseek-reasoner</code></pre>
       </div>
 
@@ -1795,7 +1800,7 @@ Model ID: deepseek-reasoner</code></pre>
         <pre><code>In NextChat, Chatbox, or LibreChat:
 API Provider: OpenAI
 Base URL (API Host): ${baseUrl}
-API Key: Paste your API key
+API Key: dummy
 Model: deepseek-reasoner</code></pre>
       </div>
 

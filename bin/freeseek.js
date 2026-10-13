@@ -120,7 +120,10 @@ async function testDeepSeekToken(token) {
 let cachedWasmInstance = null;
 function getWasmExports() {
   if (!cachedWasmInstance) {
-    const wasmPath = path.join(__dirname, "..", "src", "sha3_wasm_v1.wasm");
+    let wasmPath = path.join(__dirname, "sha3_wasm_v1.wasm");
+    if (!fs.existsSync(wasmPath)) {
+      wasmPath = path.join(__dirname, "..", "src", "sha3_wasm_v1.wasm");
+    }
     const wasmBytes = fs.readFileSync(wasmPath);
     const wasmModule = new WebAssembly.Module(wasmBytes);
     cachedWasmInstance = new WebAssembly.Instance(wasmModule, {});
