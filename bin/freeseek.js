@@ -1433,30 +1433,33 @@ function startServer(port = 8787) {
         <span class="step-num">3</span>
         <span>Configure Cursor / VS Code / Roo / Continue</span>
       </div>
-      <p>In your editor settings, configure an OpenAI-Compatible provider with these values. Since your token is saved locally on your computer, you do not need to paste long tokens into your editor.</p>
+      <p>In your editor settings, configure an OpenAI-Compatible provider with these values. Notice that the Server (Base URL) and API Parameter (API Key) are two completely separate settings:</p>
 
       <table class="config-table">
         <tr>
-          <td class="config-label">OpenAI Base URL</td>
+          <td class="config-label">1. Server (Base URL)</td>
           <td><span class="config-val" id="val-baseurl">http://127.0.0.1:${port}/v1</span></td>
-          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('http://127.0.0.1:${port}/v1', this)">Copy</button></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('http://127.0.0.1:${port}/v1', this)">Copy Server URL</button></td>
         </tr>
         <tr>
-          <td class="config-label">API Key</td>
+          <td class="config-label">2. API Parameter</td>
           <td><span class="config-val" id="val-apikey">dummy</span></td>
-          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('dummy', this)">Copy</button></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('dummy', this)">Copy API Key</button></td>
         </tr>
         <tr>
-          <td class="config-label">Reasoning Model</td>
+          <td class="config-label">3. Model (Reasoning)</td>
           <td><span class="config-val" id="val-model-r1">deepseek-reasoner</span></td>
-          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('deepseek-reasoner', this)">Copy</button></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('deepseek-reasoner', this)">Copy Model</button></td>
         </tr>
         <tr>
-          <td class="config-label">Chat Model</td>
+          <td class="config-label">4. Model (Chat)</td>
           <td><span class="config-val" id="val-model-v3">deepseek-chat</span></td>
-          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('deepseek-chat', this)">Copy</button></td>
+          <td style="text-align: right;"><button class="btn-copy" onclick="copyValue('deepseek-chat', this)">Copy Model</button></td>
         </tr>
       </table>
+      <div style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">
+        Paste <code>http://127.0.0.1:${port}/v1</code> into the Server / Base URL setting. For the API Key setting, simply enter <code>dummy</code>.
+      </div>
     </div>
 
     <!-- Connection Tester -->

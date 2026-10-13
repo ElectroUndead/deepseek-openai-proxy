@@ -320,6 +320,53 @@ export default {
       });
     }
 
+    // Token verification endpoint: lightweight, fast check without PoW challenge
+    if (url.pathname === "/api/verify-token" && request.method === "POST") {
+      try {
+        const body = await request.json();
+        let token = (body.token || "").trim();
+        while (token.toLowerCase().startsWith("bearer ")) {
+          token = token.substring(7).trim();
+        }
+        if (!token || token.length < 10) {
+          return new Response(JSON.stringify({ valid: false, error: "Token is too short or empty." }), {
+            status: 400,
+            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          });
+        }
+        const checkResp = await fetch("https://chat.deepseek.com/api/v0/chat_session/create", {
+          method: "POST",
+          headers: {
+            "authorization": `Bearer ${token}`,
+            "content-type": "application/json",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "origin": "https://chat.deepseek.com",
+            "referer": "https://chat.deepseek.com/",
+          },
+          body: JSON.stringify({ agent: "chat" }),
+        });
+        if (checkResp.ok) {
+          const data = await checkResp.json();
+          if (data.code === 0 || data.data) {
+            return new Response(JSON.stringify({ valid: true, message: "DeepSeek token is active and valid!" }), {
+              headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+            });
+          }
+          return new Response(JSON.stringify({ valid: false, error: data.msg || "Token rejected by DeepSeek." }), {
+            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          });
+        } else {
+          return new Response(JSON.stringify({ valid: false, error: `DeepSeek returned HTTP ${checkResp.status}` }), {
+            headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+          });
+        }
+      } catch (e) {
+        return new Response(JSON.stringify({ valid: false, error: e.message }), {
+          headers: { "Content-Type": "application/json", ...getCorsHeaders() }
+        });
+      }
+    }
+
     // Completions endpoint: /v1/chat/completions or /chat/completions
     if (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions") {
       if (request.method !== "POST") {
@@ -1546,7 +1593,7 @@ function renderSetupHtml(origin) {
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-2" onclick="goToStep(2)">
-        <span class="step-circle">2</span> <span class="step-nav-text">Run Locally</span>
+        <span class="step-circle">2</span> <span class="step-nav-text">Key Grabber</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-3" onclick="goToStep(3)">
@@ -1554,7 +1601,7 @@ function renderSetupHtml(origin) {
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-4" onclick="goToStep(4)">
-        <span class="step-circle">4</span> <span class="step-nav-text">Verify Key</span>
+        <span class="step-circle">4</span> <span class="step-nav-text">Run Server</span>
       </button>
       <div class="step-line"></div>
       <button class="step-nav-btn" id="nav-step-5" onclick="goToStep(5)">
@@ -1586,12 +1633,11 @@ function renderSetupHtml(origin) {
         </p>
 
         <div class="star-gate-warning">
-          <strong>Important Instructions (Please Read):</strong>
+          <strong>Important Instructions:</strong>
           <div style="margin-top: 8px; line-height: 1.6;">
             1. Click <strong>Star on GitHub</strong> below to open the official repository in a new tab.<br>
             2. On GitHub, click the <strong>Star</strong> button near the top right of the page.<br>
-            3. <strong>Why Run Locally?</strong> DeepSeek requires solving heavy Proof-of-Work (PoW) cryptographic challenges on every request. Cloudflare Workers have a 10ms CPU limit and cannot solve these challenges reliably. Running <code>freeseek</code> locally runs directly on your computer's CPU with zero limits and zero timeouts.<br>
-            4. Come back to this tab and click <strong>I Have Starred: Continue to Step 2</strong> to proceed.
+            3. Come back to this tab and click <strong>I Have Starred: Continue to Step 2</strong> to proceed.
           </div>
         </div>
 
@@ -1600,7 +1646,7 @@ function renderSetupHtml(origin) {
             Star on GitHub
           </a>
           <button id="btn-confirm-star" class="btn-secondary" style="display: none;" onclick="confirmGithubStarAndAdvance()">
-            I Have Starred: Continue to Step 2 →
+            I Have Starred: Continue to Step 2 &rarr;
           </button>
         </div>
         <div id="star-opened-hint" style="display: none; font-size: 12.5px; color: var(--text-muted); margin-top: 12px; line-height: 1.45;">
@@ -1614,43 +1660,51 @@ function renderSetupHtml(origin) {
             <span class="star-gate-badge completed-badge">Completed</span>
             <span style="font-size: 13px; font-weight: 600; color: #000000;">GitHub Repository Starred</span>
           </div>
-          <button class="btn-primary" onclick="goToStep(2)">Proceed to Step 2: Run Locally →</button>
+          <button class="btn-primary" onclick="goToStep(2)">Proceed to Step 2: Key Grabber &rarr;</button>
         </div>
       </div>
     </div>
 
-    <!-- STEP 2: Run Locally -->
+    <!-- STEP 2: Browser Tool (Key Grabber) -->
     <div id="step-panel-2" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">2</span>
-        <span>Run freeseek Locally (1 Single Command)</span>
+        <span>Browser Tool: 1-Click Key Grabber</span>
       </div>
-      <p class="card-desc">Run this single command in your terminal to start your local proxy server:</p>
+      <p class="card-desc">
+        Add this browser bookmarklet tool to your bookmarks bar. It allows you to extract your active DeepSeek session token with a single click while on chat.deepseek.com.
+      </p>
 
-      <div style="background: #000000; color: #ffffff; padding: 18px 20px; border-radius: 8px; font-family: var(--font-mono); font-size: 14px; display: flex; justify-content: space-between; align-items: center; margin: 16px 0;">
-        <span id="cmd-run-freeseek">npx freeseek</span>
-        <button class="btn-copy" style="background: #ffffff; color: #000000; border: none; font-weight: 700;" onclick="copyText('cmd-run-freeseek', 'Command')">Copy Command</button>
-      </div>
-
-      <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
-        <div><strong>Windows:</strong> Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>cmd</code>, press Enter, and paste the command above. (Or download the repository and double-click <code>start.bat</code>)</div>
-        <div style="margin-top: 4px;"><strong>Mac / Linux:</strong> Open Terminal and paste the command above.</div>
-        <div style="margin-top: 4px;">As soon as it starts, your browser will automatically open your local setup dashboard at <code>http://127.0.0.1:8787</code>!</div>
-      </div>
-
-      <div id="bookmarklet-action-card" class="hero-action-card" style="margin-top: 14px;">
+      <div id="bookmarklet-action-card" class="hero-action-card">
         <div class="hero-action-body">
           <a class="bookmarklet-btn" href="${bookmarkletCode}" onclick="showToast('Drag this button to your Bookmarks Bar (press Ctrl+Shift+B if hidden)'); return false;">
             <span>DeepSeek Key Grabber</span>
           </a>
-          <div class="drag-hint">DeepSeek Key Grabber Bookmarklet</div>
-          <div class="drag-subhint">1-click copy of your session token on chat.deepseek.com</div>
+          <div class="drag-hint">Drag this button to your Bookmarks Bar</div>
+          <div class="drag-subhint">Bookmarks bar hidden? Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> (or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>B</kbd> on Mac).</div>
+        </div>
+        <div class="hero-action-footer">
+          <span>Tip: If your browser does not support dragging, click "Copy Bookmarklet Code" below.</span>
         </div>
       </div>
 
+      <div style="margin-top: 14px; background: #fafafa; border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <span style="font-size: 12.5px; font-weight: 600; color: #000000;">Alternative: Copy Bookmarklet Code</span>
+          <button class="btn-copy" onclick="copyBookmarkletCode()">Copy Code</button>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.45;">
+          Create a new bookmark in your browser, name it <code>DeepSeek Key Grabber</code>, and paste the copied code into the URL field.
+        </div>
+      </div>
+
+      <div style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-top: 16px;">
+        <strong>Why a bookmarklet?</strong> DeepSeek does not provide public user API keys for free web accounts. This browser tool securely reads your existing web login session directly on your browser without requiring your password.
+      </div>
+
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(1)">← Back to Step 1</button>
-        <button class="btn-primary" onclick="goToStep(3)">Next: Get Key from DeepSeek →</button>
+        <button class="btn-secondary" onclick="goToStep(1)">&larr; Back to Step 1</button>
+        <button class="btn-primary" onclick="goToStep(3)">Next: Get Key from DeepSeek &rarr;</button>
       </div>
     </div>
 
@@ -1681,7 +1735,7 @@ function renderSetupHtml(origin) {
         <div class="flow-item">
           <div class="flow-badge">2</div>
           <div class="flow-content">
-            <div class="flow-title">Click the Bookmarklet</div>
+            <div class="flow-title">Click the Key Grabber Bookmarklet</div>
             <p class="flow-desc">
               While on the <strong>chat.deepseek.com</strong> tab, click the <strong>DeepSeek Key Grabber</strong> bookmark in your browser bar.
             </p>
@@ -1699,36 +1753,70 @@ function renderSetupHtml(origin) {
         </div>
       </div>
 
+      <div style="margin-top: 20px; padding: 18px; border: 1px solid var(--border-dark); border-radius: 8px; background: #fafafa;">
+        <label style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px; display: block; margin-bottom: 6px;">
+          Paste Your Key to Save and Continue
+        </label>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 10px;">
+          Paste the copied key here (Ctrl + V). It will automatically be formatted and saved for your local server and IDE.
+        </p>
+        <div class="input-row">
+          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your key here (Ctrl + V)..." oninput="handleTokenInput(this.value)" />
+          <button id="btn-test-token" class="btn-primary" onclick="runTokenTest()">Verify Key</button>
+        </div>
+        <div id="test-token-result" style="display: none; padding: 12px 14px; border-radius: 6px; margin-top: 10px; font-size: 13px;"></div>
+      </div>
+
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(2)">← Back to Step 2</button>
-        <button class="btn-primary" onclick="goToStep(4)">Next: Verify Key →</button>
+        <button class="btn-secondary" onclick="goToStep(2)">&larr; Back to Step 2</button>
+        <button class="btn-primary" onclick="goToStep(4)">Next: Run Local Server &rarr;</button>
       </div>
 
       <div style="text-align: center; margin-top: 14px;">
-        <button class="btn-text" onclick="goToStep(5)" style="font-size: 12px; color: var(--text-subtle);">Already have your key? Skip to Step 5 →</button>
+        <button class="btn-text" onclick="goToStep(5)" style="font-size: 12px; color: var(--text-subtle);">Already have local server running? Skip to Step 5 &rarr;</button>
       </div>
     </div>
 
-    <!-- STEP 4: Verify Token Panel -->
+    <!-- STEP 4: Run Local Server (npx freeseek) -->
     <div id="step-panel-4" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">4</span>
-        <span>Verify Your API Key (Optional)</span>
+        <span>Run Local Server (npx freeseek)</span>
       </div>
-      <p class="card-desc">Paste your key below to test and confirm that it works with the proxy:</p>
+      <p class="card-desc">Run this single command in your terminal to start your local proxy server on your machine:</p>
 
-      <div>
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">Paste Your API Key</label>
-        <div class="input-row">
-          <input type="text" id="test-token-input" class="input-field" placeholder="Paste your key here (Ctrl + V)..." />
-          <button id="btn-test-token" class="btn-primary" onclick="runTokenTest()">Verify Key</button>
+      <div style="background: #000000; color: #ffffff; padding: 18px 20px; border-radius: 8px; font-family: var(--font-mono); font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin: 16px 0;">
+        <span id="cmd-run-freeseek">npx freeseek</span>
+        <button class="btn-copy" style="background: #ffffff; color: #000000; border: none; font-weight: 700;" onclick="copyText('cmd-run-freeseek', 'Command')">Copy Command</button>
+      </div>
+
+      <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
+        <div><strong>Windows:</strong> Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>cmd</code>, press Enter, and paste the command above. (Or download the repository and double-click <code>start.bat</code>)</div>
+        <div style="margin-top: 6px;"><strong>Mac / Linux:</strong> Open Terminal and paste the command above. (Or run <code>./start.sh</code>)</div>
+        <div style="margin-top: 6px;">As soon as it starts, your browser will open your local dashboard at <code>http://127.0.0.1:8787</code>!</div>
+      </div>
+
+      <div style="background: #fafafa; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0;">
+        <div style="font-size: 13px; font-weight: 700; color: #000000; margin-bottom: 4px;">Why Run Locally?</div>
+        <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5;">
+          DeepSeek requires solving heavy Proof-of-Work (PoW) cryptographic challenges on every request. Cloudflare Workers have a 10ms CPU limit and cannot solve these challenges reliably. Running <code>freeseek</code> locally runs directly on your computer's CPU with zero limits and zero timeouts.
         </div>
-        <div id="test-token-result" style="display: none; padding: 14px; border-radius: 6px; margin-top: 12px;"></div>
+      </div>
+
+      <!-- Live Local Server Status Checker -->
+      <div id="local-server-status-card" style="border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; background: #ffffff; display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
+        <div>
+          <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.5px;">Local Server Status</div>
+          <div id="local-server-status-text" style="font-size: 13.5px; font-weight: 600; color: #000000; margin-top: 2px;">
+            Checking local server at http://127.0.0.1:8787...
+          </div>
+        </div>
+        <button class="btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="checkLocalServerStatus(true)">Check Status</button>
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(3)">← Back to Step 3</button>
-        <button class="btn-primary" onclick="goToStep(5)">Next: Connect to App →</button>
+        <button class="btn-secondary" onclick="goToStep(3)">&larr; Back to Step 3: Get Key</button>
+        <button class="btn-primary" onclick="goToStep(5)">Next: Connect to App &rarr;</button>
       </div>
     </div>
 
@@ -1738,37 +1826,62 @@ function renderSetupHtml(origin) {
         <span class="step-badge">5</span>
         <span>Connect to Your AI App</span>
       </div>
-      <p class="card-desc">Enter these 3 values into your IDE, extension, or OpenAI-compatible client:</p>
+      <p class="card-desc">Configure your IDE or AI application with these parameters. Notice that the Server (Base URL) and API Parameter (API Key) are two completely separate settings:</p>
 
-      <div>
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">1. Base URL</label>
-        <div class="copy-row">
-          <span id="base-url-text">${baseUrl}</span>
-          <button class="btn-copy" onclick="copyText('base-url-text', 'Base URL')">Copy URL</button>
+      <!-- Parameter 1: Server Setting (Base URL) -->
+      <div style="border: 1px solid var(--border-dark); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fafafa;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px;">
+            1. Server Parameter (OpenAI Base URL)
+          </label>
+          <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); background: #ffffff; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px;">Server Address</span>
+        </div>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 10px;">
+          Paste this into the <strong>Base URL</strong>, <strong>API Host</strong>, or <strong>Server URL</strong> field in your application settings:
+        </p>
+        <div class="copy-row" style="background: #ffffff; border: 1px solid var(--border-dark);">
+          <span id="base-url-text" style="font-weight: 600; font-family: var(--font-mono); color: #000000;">http://127.0.0.1:8787/v1</span>
+          <button class="btn-copy" onclick="copyText('base-url-text', 'Server URL')">Copy Server URL</button>
         </div>
       </div>
 
-      <div style="margin-top: 14px;">
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">2. API Key</label>
-        <div class="copy-row">
-          <span id="api-key-display" style="font-family: var(--font-mono); font-weight: 600; color: var(--text);">
-            dummy
-          </span>
-          <button class="btn-copy" id="btn-copy-api-key" onclick="copyText('api-key-display', 'API Key')">Copy API Key</button>
+      <!-- Parameter 2: API Parameter (API Key) -->
+      <div style="border: 1px solid var(--border-dark); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fafafa;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px;">
+            2. API Parameter (API Key / Bearer Token)
+          </label>
+          <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); background: #ffffff; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px;">Auth Parameter</span>
         </div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-          Credentials are managed locally by freeseek, so any API key works (e.g. <code>dummy</code>)!
+        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 10px;">
+          Paste this into the <strong>API Key</strong> or <strong>Bearer Token</strong> field in your application settings:
+        </p>
+        <div class="copy-row" style="background: #ffffff; border: 1px solid var(--border-dark);">
+          <span id="api-key-display" style="font-family: var(--font-mono); font-weight: 600; color: #000000; word-break: break-all;">dummy</span>
+          <button class="btn-copy" id="btn-copy-api-key" onclick="copyApiParameter()">Copy API Parameter</button>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.45;">
+          Note: Since freeseek runs locally on your machine, you can use your DeepSeek key from Step 3 OR enter <code>dummy</code> (the local server manages authentication automatically).
         </div>
       </div>
 
-      <div style="margin-top: 14px;">
-        <label style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted);">3. Model Name</label>
-        <div class="copy-row">
-          <span id="model-name-text">deepseek-reasoner</span>
+      <!-- Parameter 3: Model Parameter (Model Name) -->
+      <div style="border: 1px solid var(--border-dark); border-radius: 8px; padding: 16px; margin-bottom: 16px; background: #fafafa;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label style="font-size: 12px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px;">
+            3. Model Parameter (Model Name / ID)
+          </label>
+          <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); background: #ffffff; border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px;">Model ID</span>
+        </div>
+        <p style="font-size: 12.5px; color: var(--text-muted); margin-bottom: 10px;">
+          Enter this in the <strong>Model ID</strong> or <strong>Model Name</strong> field in your application settings:
+        </p>
+        <div class="copy-row" style="background: #ffffff; border: 1px solid var(--border-dark);">
+          <span id="model-name-text" style="font-family: var(--font-mono); font-weight: 600; color: #000000;">deepseek-reasoner</span>
           <button class="btn-copy" onclick="copyText('model-name-text', 'Model Name')">Copy Model</button>
         </div>
-        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-          Note: You can also use <code>deepseek-chat</code> for standard conversational mode without extended reasoning.
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px; line-height: 1.45;">
+          Use <code>deepseek-reasoner</code> for DeepSeek-R1 extended reasoning, or <code>deepseek-chat</code> for standard conversation without reasoning blocks.
         </div>
       </div>
 
@@ -1783,33 +1896,36 @@ function renderSetupHtml(origin) {
         <pre><code>1. Open Cursor Settings (gear icon).
 2. Go to "Models" -> "OpenAI".
 3. Turn ON "Override OpenAI Base URL" and enter:
-   ${baseUrl}
-4. In "OpenAI API Key", enter: dummy
+   Server (Base URL): http://127.0.0.1:8787/v1
+4. In "OpenAI API Key" (API Parameter), enter:
+   API Parameter: dummy (or paste your key from Step 3)
 5. In model list, add: deepseek-reasoner (or deepseek-chat)</code></pre>
       </div>
 
       <div id="tab-ide-vscode" class="tab-content">
         <pre><code>In Cline / Continue / Roo Code settings:
 Provider: OpenAI Compatible
-Base URL: ${baseUrl}
-API Key: dummy
-Model ID: deepseek-reasoner</code></pre>
+Server (Base URL): http://127.0.0.1:8787/v1
+API Parameter (API Key): dummy
+Model Parameter: deepseek-reasoner</code></pre>
       </div>
 
       <div id="tab-ide-clients" class="tab-content">
         <pre><code>In NextChat, Chatbox, or LibreChat:
-API Provider: OpenAI
-Base URL (API Host): ${baseUrl}
-API Key: dummy
-Model: deepseek-reasoner</code></pre>
+API Provider: OpenAI Compatible
+Server (API Host / Base URL): http://127.0.0.1:8787/v1
+API Parameter (API Key): dummy
+Model Parameter: deepseek-reasoner</code></pre>
       </div>
 
       <div id="tab-ide-python" class="tab-content">
         <pre><code id="py-sdk-code">from openai import OpenAI
 
+# Server parameter points to local freeseek proxy
+# API parameter is dummy (or your DeepSeek session token)
 client = OpenAI(
-    base_url="${baseUrl}",
-    api_key="PASTE_YOUR_API_KEY_HERE"
+    base_url="http://127.0.0.1:8787/v1",
+    api_key="dummy"
 )
 
 response = client.chat.completions.create(
@@ -1822,7 +1938,7 @@ for chunk in response:
       </div>
 
       <div class="wizard-nav">
-        <button class="btn-secondary" onclick="goToStep(4)">← Back to Verify Key</button>
+        <button class="btn-secondary" onclick="goToStep(4)">&larr; Back to Step 4: Run Server</button>
         <button class="btn-primary" onclick="goToStep(2)">Start Over</button>
       </div>
     </div>
@@ -1845,6 +1961,9 @@ npx wrangler deploy</code></pre>
     </div>
 
   </div>
+
+  <!-- Hidden bookmarklet code for fallback copy -->
+  <textarea id="bookmarklet-raw-code" style="display: none;">${bookmarkletCode}</textarea>
 
   <!-- Modern Floating Toast -->
   <div id="toast" class="toast"></div>
@@ -1887,15 +2006,16 @@ npx wrangler deploy</code></pre>
       return s;
     }
 
-    function getProxyApiOrigin() {
-      if (window.location.hostname.includes('workers.dev')) {
-        return window.location.origin;
+    function copyBookmarkletCode() {
+      const codeElem = document.getElementById('bookmarklet-raw-code');
+      if (codeElem) {
+        navigator.clipboard.writeText(codeElem.value);
+        showToast('Bookmarklet code copied to clipboard!');
       }
-      return 'https://deepseek-setup.antigravity-cloudflare-worker.workers.dev';
     }
 
     function getProxyBaseUrl() {
-      return getProxyApiOrigin() + '/v1';
+      return 'http://127.0.0.1:8787/v1';
     }
 
     function initProxyUrls() {
@@ -1905,15 +2025,15 @@ npx wrangler deploy</code></pre>
 
       const cursorPre = document.querySelector('#tab-ide-cursor pre code');
       if (cursorPre) {
-        cursorPre.textContent = '1. Open Cursor Settings (gear icon).\\n2. Go to "Models" -> "OpenAI".\\n3. Turn ON "Override OpenAI Base URL" and enter:\\n   ' + baseUrl + '\\n4. In "OpenAI API Key", paste your API key.\\n5. In model list, add: deepseek-reasoner (or deepseek-chat)';
+        cursorPre.textContent = '1. Open Cursor Settings (gear icon).\\n2. Go to "Models" -> "OpenAI".\\n3. Turn ON "Override OpenAI Base URL" and enter:\\n   Server (Base URL): ' + baseUrl + '\\n4. In "OpenAI API Key" (API Parameter), enter:\\n   API Parameter: dummy (or paste key from Step 3)\\n5. In model list, add: deepseek-reasoner (or deepseek-chat)';
       }
       const vscodePre = document.querySelector('#tab-ide-vscode pre code');
       if (vscodePre) {
-        vscodePre.textContent = 'In Cline / Continue / Roo Code settings:\\nProvider: OpenAI Compatible\\nBase URL: ' + baseUrl + '\\nAPI Key: Paste your API key\\nModel ID: deepseek-reasoner';
+        vscodePre.textContent = 'In Cline / Continue / Roo Code settings:\\nProvider: OpenAI Compatible\\nServer (Base URL): ' + baseUrl + '\\nAPI Parameter (API Key): dummy\\nModel Parameter: deepseek-reasoner';
       }
       const clientsPre = document.querySelector('#tab-ide-clients pre code');
       if (clientsPre) {
-        clientsPre.textContent = 'In NextChat, Chatbox, or LibreChat:\\nAPI Provider: OpenAI\\nBase URL (API Host): ' + baseUrl + '\\nAPI Key: Paste your API key\\nModel: deepseek-reasoner';
+        clientsPre.textContent = 'In NextChat, Chatbox, or LibreChat:\\nAPI Provider: OpenAI Compatible\\nServer (API Host / Base URL): ' + baseUrl + '\\nAPI Parameter (API Key): dummy\\nModel Parameter: deepseek-reasoner';
       }
     }
 
@@ -1922,7 +2042,6 @@ npx wrangler deploy</code></pre>
       const disp = document.getElementById('api-key-display');
       if (disp) {
         disp.textContent = cleanKey;
-        disp.style.color = '#000000';
         disp.title = cleanKey;
       }
       const pyCode = document.getElementById('py-sdk-code');
@@ -1931,14 +2050,34 @@ npx wrangler deploy</code></pre>
       }
     }
 
-    const testInput = document.getElementById('test-token-input');
-    if (testInput) {
-      testInput.addEventListener('input', function() {
-        const clean = cleanRawToken(this.value);
-        if (clean.length > 20) {
-          updateApiKeyStep5(clean);
+    function handleTokenInput(val) {
+      const clean = cleanRawToken(val);
+      if (clean && clean.length > 20) {
+        updateApiKeyStep5(clean);
+        const resBox = document.getElementById('test-token-result');
+        if (resBox) {
+          resBox.style.display = 'block';
+          resBox.style.background = '#fafafa';
+          resBox.style.border = '1px solid #111111';
+          resBox.style.color = '#000000';
+          resBox.innerHTML = '<div style="font-weight: 700; margin-bottom: 2px;">Key format recognized!</div><div style="color: var(--text-muted); font-size: 12.5px;">Your key has been saved and configured for Step 5.</div>';
         }
-      });
+        // Try background sync to local server if it is running
+        try {
+          fetch('http://127.0.0.1:8787/api/save-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: clean }),
+            mode: 'cors'
+          }).catch(() => {});
+        } catch(e) {}
+      }
+    }
+
+    function copyApiParameter() {
+      const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input')?.value) || 'dummy';
+      navigator.clipboard.writeText(token);
+      showToast('API Parameter copied to clipboard!');
     }
 
     function hasStarredRepo() {
@@ -2002,6 +2141,10 @@ npx wrangler deploy</code></pre>
         }
       });
       window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      if (step === 4) {
+        checkLocalServerStatus(false);
+      }
     }
 
     function copyText(elemId, label) {
@@ -2010,31 +2153,50 @@ npx wrangler deploy</code></pre>
       showToast((label || 'Text') + ' copied to clipboard!');
     }
 
-    function copyVerifiedToken() {
-      const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
-      if (token) {
-        navigator.clipboard.writeText(token);
-        showToast('API Key copied to clipboard!');
-      } else {
-        showToast('No key available yet. Paste your key above and verify.');
-      }
-    }
-
-    function copyTokenStep5() {
-      const token = savedVerifiedToken || cleanRawToken(document.getElementById('test-token-input').value);
-      if (token) {
-        navigator.clipboard.writeText(token);
-        showToast('API Key copied to clipboard!');
-      } else {
-        showToast('Please complete Step 3 or verify your key in Step 4.');
-      }
-    }
-
     function switchIdeTab(ide) {
       document.querySelectorAll('.tabs .tab-item').forEach(t => t.classList.remove('active'));
       event.target.classList.add('active');
       document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
       document.getElementById('tab-ide-' + ide).classList.add('active');
+    }
+
+    async function checkLocalServerStatus(userClicked) {
+      const statusText = document.getElementById('local-server-status-text');
+      if (statusText) statusText.textContent = 'Checking local server at http://127.0.0.1:8787...';
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const resp = await fetch('http://127.0.0.1:8787/api/status', {
+          signal: controller.signal,
+          mode: 'cors'
+        });
+        clearTimeout(timeoutId);
+
+        if (resp.ok) {
+          if (statusText) {
+            statusText.innerHTML = '<span style="font-weight: 700; color: #000000;">Online:</span> Running locally on http://127.0.0.1:8787';
+          }
+          if (userClicked) showToast('Local server is running on http://127.0.0.1:8787');
+
+          // Auto sync token if available
+          if (savedVerifiedToken) {
+            fetch('http://127.0.0.1:8787/api/save-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: savedVerifiedToken }),
+              mode: 'cors'
+            }).catch(() => {});
+          }
+        } else {
+          throw new Error('Server returned ' + resp.status);
+        }
+      } catch (e) {
+        if (statusText) {
+          statusText.innerHTML = '<span style="color: var(--text-muted);">Waiting for server... Run <code>npx freeseek</code> in your terminal.</span>';
+        }
+        if (userClicked) showToast('Local server not detected yet. Run "npx freeseek" in terminal.');
+      }
     }
 
     async function runTokenTest() {
@@ -2059,40 +2221,44 @@ npx wrangler deploy</code></pre>
       resBox.style.background = '#fafafa';
       resBox.style.border = '1px solid #111111';
       resBox.style.color = '#000000';
-      resBox.innerHTML = 'Verifying key with DeepSeek and solving challenge...';
+      resBox.innerHTML = 'Verifying key with DeepSeek...';
 
       try {
-        const resp = await fetch(getProxyApiOrigin() + '/v1/chat/completions', {
+        const resp = await fetch('/api/verify-token', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + cleanKey
-          },
-          body: JSON.stringify({
-            model: 'deepseek-chat',
-            messages: [{ role: 'user', content: 'Say OK' }]
-          })
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: cleanKey })
         });
 
         const data = await resp.json();
-        if (resp.ok && data.choices && data.choices[0]) {
+        if (resp.ok && data.valid) {
           updateApiKeyStep5(cleanKey);
-          showToast('API Key verified and saved to Step 5!');
+          showToast('API Key verified and saved for Step 5!');
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
           resBox.innerHTML = \`
             <div style="font-weight: 700; font-size: 14px; margin-bottom: 4px;">Key is active and working!</div>
-            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek answered successfully and your key is saved for Step 5.</div>
+            <div style="color: #666666; font-size: 13px; margin-bottom: 12px;">DeepSeek authenticated your session token. Saved for Step 5.</div>
             <div>
-              <button class="btn-copy" onclick="copyVerifiedToken()">Copy Key</button>
+              <button class="btn-copy" onclick="copyApiParameter()">Copy Key</button>
             </div>
           \`;
+
+          // Sync to local server if running
+          try {
+            fetch('http://127.0.0.1:8787/api/save-token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: cleanKey }),
+              mode: 'cors'
+            }).catch(() => {});
+          } catch(e) {}
         } else {
           resBox.style.background = '#fafafa';
           resBox.style.border = '1px solid #111111';
           resBox.style.color = '#000000';
-          const errMsg = data.error ? data.error.message : JSON.stringify(data);
+          const errMsg = data.error || JSON.stringify(data);
           resBox.innerHTML = '<strong>Verification failed:</strong> ' + errMsg;
           showToast('Verification failed');
         }
