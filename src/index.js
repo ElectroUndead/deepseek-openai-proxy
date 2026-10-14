@@ -380,7 +380,7 @@ export default {
         isStream = body && body.stream === true;
       } catch (e) {}
 
-      const localGuideMsg = "DeepSeek Proof-of-Work (PoW) challenges require local CPU computation and cannot be solved reliably within Cloudflare Worker 10ms CPU limits.\n\nPlease run freeseek locally on your computer with a single command:\n\n  npx freeseek\n\nOnce running, update your IDE settings:\n- Base URL: http://127.0.0.1:8787/v1\n- API Key: dummy\n- Model: deepseek-reasoner or deepseek-chat\n\nVisit https://deepseek-setup.antigravity-cloudflare-worker.workers.dev for the complete setup guide.";
+      const localGuideMsg = "Please run freeseek locally on your computer with a single command:\n\n  npx freeseek\n\nOnce running, update your settings:\n- Server (Base URL): http://127.0.0.1:8787/v1\n- API Key: dummy\n- Model: deepseek-reasoner (or deepseek-chat)\n\nSetup guide: https://deepseek-setup.antigravity-cloudflare-worker.workers.dev";
 
       if (isStream) {
         const encoder = new TextEncoder();
@@ -1583,7 +1583,7 @@ function renderSetupHtml(origin) {
     <div class="header">
       <div class="badge">Zero-Config Free Proxy</div>
       <h1>DeepSeek OpenAI Proxy</h1>
-      <p class="subtitle">Run locally on your machine with zero cloud limits. Direct WebAssembly PoW solving on your CPU with native DSML tool calling for Cursor, VS Code, Cline, and Continue.</p>
+      <p class="subtitle">Use DeepSeek R1 and V3 as a free OpenAI-compatible endpoint in Cursor, VS Code, Cline, Continue, and any AI application.</p>
     </div>
 
     <!-- Stepper Header -->
@@ -1698,10 +1698,6 @@ function renderSetupHtml(origin) {
         </div>
       </div>
 
-      <div style="font-size: 13px; color: var(--text-muted); line-height: 1.55; margin-top: 16px;">
-        <strong>Why a bookmarklet?</strong> DeepSeek does not provide public user API keys for free web accounts. This browser tool securely reads your existing web login session directly on your browser without requiring your password.
-      </div>
-
       <div class="wizard-nav">
         <button class="btn-secondary" onclick="goToStep(1)">&larr; Back to Step 1</button>
         <button class="btn-primary" onclick="goToStep(3)">Next: Get Key from DeepSeek &rarr;</button>
@@ -1794,13 +1790,6 @@ function renderSetupHtml(origin) {
         <div><strong>Windows:</strong> Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>cmd</code>, press Enter, and paste the command above. (Or download the repository and double-click <code>start.bat</code>)</div>
         <div style="margin-top: 6px;"><strong>Mac / Linux:</strong> Open Terminal and paste the command above. (Or run <code>./start.sh</code>)</div>
         <div style="margin-top: 6px;">As soon as it starts, your browser will open your local dashboard at <code>http://127.0.0.1:8787</code>!</div>
-      </div>
-
-      <div style="background: #fafafa; border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0;">
-        <div style="font-size: 13px; font-weight: 700; color: #000000; margin-bottom: 4px;">Why Run Locally?</div>
-        <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5;">
-          DeepSeek requires solving heavy Proof-of-Work (PoW) cryptographic challenges on every request. Cloudflare Workers have a 10ms CPU limit and cannot solve these challenges reliably. Running <code>freeseek</code> locally runs directly on your computer's CPU with zero limits and zero timeouts.
-        </div>
       </div>
 
       <!-- Live Local Server Status Checker -->
@@ -1943,21 +1932,8 @@ for chunk in response:
       </div>
     </div>
 
-    <!-- Optional Developer Section -->
-    <div class="card">
-      <details>
-        <summary>Want to host your own dedicated worker? (Developers Only)</summary>
-        <p style="font-size: 13px; color: var(--text-muted); margin: 10px 0;">
-          Notice: Normal users do not need this. This proxy is already hosted and running for you online. Only use the commands below if you are a developer hosting your own private Cloudflare instance:
-        </p>
-        <pre><code>git clone https://github.com/divyansh-shandilya/deepseek-openai-proxy.git
-cd deepseek-openai-proxy
-npx wrangler login
-npx wrangler deploy</code></pre>
-        <p style="font-size: 12.5px; color: var(--text-muted);">
-          View open-source repository on <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" style="color: #000000; font-weight: 600;">GitHub</a>.
-        </p>
-      </details>
+    <div style="text-align: center; margin: 28px 0 10px; font-size: 12.5px; color: var(--text-muted);">
+      Open-source project on <a href="https://github.com/divyansh-shandilya/deepseek-openai-proxy" target="_blank" style="color: #000000; font-weight: 600; text-decoration: underline;">GitHub</a>
     </div>
 
   </div>

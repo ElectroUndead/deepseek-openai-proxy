@@ -1,7 +1,7 @@
 {
   "name": "freeseek",
   "version": "1.0.0",
-  "description": "100% Free OpenAI-compatible proxy for DeepSeek R1 & V3 with WebAssembly PoW solving and DSML tool calling.",
+  "description": "100% Free OpenAI-compatible proxy for DeepSeek R1 & V3.",
   "main": "src/index.js",
   "bin": {
     "freeseek": "./bin/freeseek.js"

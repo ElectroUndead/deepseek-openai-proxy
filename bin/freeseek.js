@@ -2,9 +2,7 @@
 
 /**
  * freeseek - Local DeepSeek OpenAI-Compatible Proxy
- * High-performance local server with WebAssembly PoW solving and DSML tool calling.
- *
- * Runs locally on Node.js without Cloudflare CPU/timeout limits.
+ * High-performance local server with DSML tool calling.
  */
 
 const http = require("node:http");
@@ -488,10 +486,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
           const challengeObj = powData.data.biz_data.challenge;
 
           // Local node runs fast without worker CPU limits
-          const t0 = Date.now();
           const answer = solveDeepSeekPoW(challengeObj);
-          const elapsed = Date.now() - t0;
-          console.log(`  [PoW] Solved difficulty ${challengeObj.difficulty} in ${elapsed}ms (answer: ${answer})`);
 
           powHeaderValue = btoa(JSON.stringify({
             algorithm: challengeObj.algorithm,
@@ -1475,7 +1470,7 @@ function startServer(port = 8787) {
     </div>
 
     <div style="text-align: center; font-size: 12px; color: var(--text-subtle); margin-top: 30px;">
-      Running locally on your CPU with native WebAssembly PoW solving and DSML tool calling.
+      freeseek - Free Local DeepSeek OpenAI Proxy
     </div>
   </div>
 

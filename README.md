@@ -1,20 +1,17 @@
 # freeseek - Local DeepSeek OpenAI-Compatible Proxy
 
-High-performance local proxy for **DeepSeek R1 (Reasoning)** and **DeepSeek V3** with native WebAssembly Proof-of-Work (PoW) solving and DSML tool calling.
+Free, fast local proxy for **DeepSeek R1 (Reasoning)** and **DeepSeek V3**.
 
-Connect DeepSeek directly into **Cursor**, **VS Code / Cline**, **Roo Code**, **Continue**, or any OpenAI SDK application with zero latency, zero cloud limits, and zero cost.
+Connect DeepSeek directly into **Cursor**, **VS Code / Cline**, **Roo Code**, **Continue**, or any OpenAI SDK application with zero rate limits and zero cost.
 
 ---
 
-## Why freeseek Runs Locally
+## Why freeseek
 
-DeepSeek requires solving cryptographic Proof-of-Work (PoW) challenges for every message. Cloudflare Workers and serverless platforms have strict 10ms CPU limits that cause frequent timeouts, glitches, and 503 errors when attempting to solve challenges.
-
-Running `freeseek` locally runs directly on your computer's CPU:
-- **Zero Limits**: Solves PoW challenges via native WebAssembly in milliseconds.
-- **Zero Cloud Costs & No Server Crashes**: Eliminates centralized server bottlenecks.
-- **Full DSML Tool Calling**: Intercepts DeepSeek's internal `<||DSML|| invoke>` markup and translates it to standard OpenAI `tool_calls`. Coding agents can execute terminal commands, view files, and edit code automatically.
+- **Fast & Direct**: Runs directly on your computer with zero cloud timeouts or server slowdowns.
+- **Full Coding Agent Support**: Seamlessly translates tool calls (file reading, terminal execution, code editing) for Cursor, VS Code, Cline, and Continue.
 - **Privacy First**: Your token and requests are stored locally on your machine and never pass through third-party servers.
+- **100% Free**: No subscription or credit card needed.
 
 ---
 
