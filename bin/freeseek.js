@@ -1598,7 +1598,9 @@ function startServer(port = 8787) {
     console.log("  Press Ctrl+C to stop.");
     console.log("");
 
-    openBrowser("http://127.0.0.1:" + port);
+    if (process.argv.includes("--open") || process.env.OPEN_BROWSER === "true") {
+      openBrowser("http://127.0.0.1:" + port);
+    }
   });
 }
 

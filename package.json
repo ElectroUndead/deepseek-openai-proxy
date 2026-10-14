@@ -6,6 +6,22 @@
   "bin": {
     "freeseek": "./bin/freeseek.js"
   },
+  "preferGlobal": true,
+  "files": [
+    "bin",
+    "src",
+    "start.bat",
+    "start.sh",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/divyansh-shandilya/deepseek-openai-proxy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/divyansh-shandilya/deepseek-openai-proxy/issues"
+  },
+  "homepage": "https://github.com/divyansh-shandilya/deepseek-openai-proxy#readme",
   "scripts": {
     "start": "node bin/freeseek.js",
     "local": "node bin/freeseek.js",

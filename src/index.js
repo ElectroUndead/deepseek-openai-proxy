@@ -1773,34 +1773,56 @@ function renderSetupHtml(origin) {
       </div>
     </div>
 
-    <!-- STEP 4: Run Local Server (npx freeseek) -->
+    <!-- STEP 4: Download & Run Local Server -->
     <div id="step-panel-4" class="step-panel card" style="display: none;">
       <div class="card-title">
         <span class="step-badge">4</span>
-        <span>Run Local Server (npx freeseek)</span>
+        <span>Download & Run Local Server</span>
       </div>
-      <p class="card-desc">Run this single command in your terminal to start your local proxy server on your machine:</p>
+      <p class="card-desc">Follow these 2 simple commands in your terminal to download and start your local server:</p>
 
-      <div style="background: #000000; color: #ffffff; padding: 18px 20px; border-radius: 8px; font-family: var(--font-mono); font-size: 15px; display: flex; justify-content: space-between; align-items: center; margin: 16px 0;">
-        <span id="cmd-run-freeseek">npx freeseek</span>
-        <button class="btn-copy" style="background: #ffffff; color: #000000; border: none; font-weight: 700;" onclick="copyText('cmd-run-freeseek', 'Command')">Copy Command</button>
-      </div>
-
-      <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6; margin-bottom: 16px;">
-        <div><strong>Windows:</strong> Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>cmd</code>, press Enter, and paste the command above. (Or download the repository and double-click <code>start.bat</code>)</div>
-        <div style="margin-top: 6px;"><strong>Mac / Linux:</strong> Open Terminal and paste the command above. (Or run <code>./start.sh</code>)</div>
-        <div style="margin-top: 6px;">As soon as it starts, your browser will open your local dashboard at <code>http://127.0.0.1:8787</code>!</div>
-      </div>
-
-      <!-- Live Local Server Status Checker -->
-      <div id="local-server-status-card" style="border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; background: #ffffff; display: flex; justify-content: space-between; align-items: center; margin-top: 14px;">
-        <div>
-          <div style="font-size: 11px; text-transform: uppercase; font-weight: 700; color: var(--text-muted); letter-spacing: 0.5px;">Local Server Status</div>
-          <div id="local-server-status-text" style="font-size: 13.5px; font-weight: 600; color: #000000; margin-top: 2px;">
-            Checking local server at http://127.0.0.1:8787...
-          </div>
+      <!-- 1. Download Command -->
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 11.5px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px;">
+          1. Download / Install Command (Run once)
+        </label>
+        <div style="background: #000000; color: #ffffff; padding: 14px 18px; border-radius: 6px; font-family: var(--font-mono); font-size: 14px; display: flex; justify-content: space-between; align-items: center; margin: 8px 0 6px;">
+          <span id="cmd-install-freeseek">npm install -g freeseek</span>
+          <button class="btn-copy" style="background: #ffffff; color: #000000; border: none; font-weight: 700;" onclick="copyText('cmd-install-freeseek', 'Install Command')">Copy Install Command</button>
         </div>
-        <button class="btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="checkLocalServerStatus(true)">Check Status</button>
+        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+          Open your terminal (Command Prompt on Windows, Terminal on Mac/Linux) and paste the command above.
+        </div>
+      </div>
+
+      <!-- 2. Start Command -->
+      <div style="margin-bottom: 16px;">
+        <label style="font-size: 11.5px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px;">
+          2. Start Command
+        </label>
+        <div style="background: #000000; color: #ffffff; padding: 14px 18px; border-radius: 6px; font-family: var(--font-mono); font-size: 14px; display: flex; justify-content: space-between; align-items: center; margin: 8px 0 6px;">
+          <span id="cmd-run-freeseek">freeseek</span>
+          <button class="btn-copy" style="background: #ffffff; color: #000000; border: none; font-weight: 700;" onclick="copyText('cmd-run-freeseek', 'Start Command')">Copy Start Command</button>
+        </div>
+        <div style="font-size: 12px; color: var(--text-muted); line-height: 1.5;">
+          Type <code>freeseek</code> and press Enter. (Windows alternative: download project and double-click <code>start.bat</code>)
+        </div>
+      </div>
+
+      <!-- 3. Check If Started -->
+      <div style="margin-top: 18px;">
+        <label style="font-size: 11.5px; text-transform: uppercase; font-weight: 700; color: #000000; letter-spacing: 0.5px;">
+          3. Check Server Status
+        </label>
+        <div id="local-server-status-card" style="border: 1px solid var(--border-dark); border-radius: 8px; padding: 16px 18px; background: #fafafa; display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+          <div>
+            <div id="local-server-status-badge" style="display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; background: #e5e5e5; color: #000000; margin-bottom: 4px;">Checking</div>
+            <div id="local-server-status-text" style="font-size: 13.5px; font-weight: 600; color: #000000;">
+              Checking if server is running on http://127.0.0.1:8787...
+            </div>
+          </div>
+          <button class="btn-secondary" style="font-size: 12px; padding: 6px 14px;" onclick="checkLocalServerStatus(true)">Check Status</button>
+        </div>
       </div>
 
       <div class="wizard-nav">
@@ -2120,6 +2142,18 @@ for chunk in response:
 
       if (step === 4) {
         checkLocalServerStatus(false);
+        if (!window.serverCheckInterval) {
+          window.serverCheckInterval = setInterval(() => {
+            if (currentStep === 4) {
+              checkLocalServerStatus(false);
+            }
+          }, 3000);
+        }
+      } else {
+        if (window.serverCheckInterval) {
+          clearInterval(window.serverCheckInterval);
+          window.serverCheckInterval = null;
+        }
       }
     }
 
@@ -2138,7 +2172,13 @@ for chunk in response:
 
     async function checkLocalServerStatus(userClicked) {
       const statusText = document.getElementById('local-server-status-text');
-      if (statusText) statusText.textContent = 'Checking local server at http://127.0.0.1:8787...';
+      const statusBadge = document.getElementById('local-server-status-badge');
+      if (statusText && userClicked) statusText.textContent = 'Checking if server is running on http://127.0.0.1:8787...';
+      if (statusBadge && userClicked) {
+        statusBadge.textContent = 'Checking';
+        statusBadge.style.background = '#e5e5e5';
+        statusBadge.style.color = '#000000';
+      }
 
       try {
         const controller = new AbortController();
@@ -2150,8 +2190,13 @@ for chunk in response:
         clearTimeout(timeoutId);
 
         if (resp.ok) {
+          if (statusBadge) {
+            statusBadge.textContent = 'Started & Online';
+            statusBadge.style.background = '#000000';
+            statusBadge.style.color = '#ffffff';
+          }
           if (statusText) {
-            statusText.innerHTML = '<span style="font-weight: 700; color: #000000;">Online:</span> Running locally on http://127.0.0.1:8787';
+            statusText.innerHTML = '<span style="font-weight: 700; color: #000000;">Server is running:</span> Ready on http://127.0.0.1:8787';
           }
           if (userClicked) showToast('Local server is running on http://127.0.0.1:8787');
 
@@ -2168,10 +2213,15 @@ for chunk in response:
           throw new Error('Server returned ' + resp.status);
         }
       } catch (e) {
-        if (statusText) {
-          statusText.innerHTML = '<span style="color: var(--text-muted);">Waiting for server... Run <code>npx freeseek</code> in your terminal.</span>';
+        if (statusBadge) {
+          statusBadge.textContent = 'Not Started';
+          statusBadge.style.background = '#f0f0f0';
+          statusBadge.style.color = '#666666';
         }
-        if (userClicked) showToast('Local server not detected yet. Run "npx freeseek" in terminal.');
+        if (statusText) {
+          statusText.innerHTML = '<span style="color: var(--text-muted);">Server not detected yet. Run <code>freeseek</code> in your terminal.</span>';
+        }
+        if (userClicked) showToast('Local server not detected yet. Run "freeseek" in terminal.');
       }
     }
 

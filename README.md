@@ -17,26 +17,22 @@ Connect DeepSeek directly into **Cursor**, **VS Code / Cline**, **Roo Code**, **
 
 ## Quick Setup (1 Command)
 
-### Option 1: Run via npx (Zero Installation)
+### 1. Download / Install
 ```bash
-npx freeseek
+npm install -g freeseek
+```
+*(Windows alternative: You can also clone this repository and double-click `start.bat`)*
+
+### 2. Start the Server
+```bash
+freeseek
 ```
 
-### Option 2: Clone and Run
+### 3. Check Server Status
+Open the setup hub at [https://deepseek-setup.antigravity-cloudflare-worker.workers.dev](https://deepseek-setup.antigravity-cloudflare-worker.workers.dev) or test your endpoint directly:
 ```bash
-git clone https://github.com/divyansh-shandilya/deepseek-openai-proxy.git
-cd deepseek-openai-proxy
-npm start
+curl http://127.0.0.1:8787/health
 ```
-*Windows users: You can also double-click `start.bat`.*
-
----
-
-## 3-Step Setup Workflow
-
-1. **Launch**: Running `npx freeseek` starts the local server and automatically opens `http://127.0.0.1:8787` in your browser.
-2. **Sync Token**: Click **Open chat.deepseek.com** and sign in. Drag the **Sync Token with Local Freeseek** bookmarklet to your bookmarks bar and click it once on `chat.deepseek.com`. Your token is saved locally to `~/.freeseek/config.json`.
-3. **Configure IDE**: In your editor, configure the OpenAI provider using the values below.
 
 ---
 
