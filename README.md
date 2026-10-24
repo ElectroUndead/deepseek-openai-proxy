@@ -44,7 +44,9 @@ curl http://127.0.0.1:8787/health
    ```text
    http://127.0.0.1:8787/v1
    ```
-3. Set **OpenAI API Key**: `dummy` (any text works, as credentials are managed locally).
+3. Set **OpenAI API Key**: your **DeepSeek session token** (grab it with the bookmarklet on the setup hub). This is the credential the proxy uses to call DeepSeek on your behalf.
+
+   > `dummy` also works **only if** you already saved a token locally (`~/.freeseek/config.json`) — the proxy then falls back to that stored token. That fallback is what makes `dummy` appear to "work"; it is not a real API key.
 4. Add Model: `deepseek-reasoner` (or `deepseek-chat`).
 
 ---
@@ -52,7 +54,7 @@ curl http://127.0.0.1:8787/health
 ### VS Code / Cline / Roo Code / Continue
 - **Provider**: `OpenAI Compatible`
 - **Base URL**: `http://127.0.0.1:8787/v1`
-- **API Key**: `dummy`
+- **API Key**: your DeepSeek session token (or `dummy` if a token is already saved in `~/.freeseek/config.json`)
 - **Model ID**: `deepseek-reasoner`
 
 ---
@@ -95,7 +97,7 @@ Your DeepSeek session token is stored in plaintext at `~/.freeseek/config.json` 
 
 If you set `HOST` (or run the Docker image, which sets `HOST=0.0.0.0`), the proxy listens on **all interfaces**. That means:
 
-- **Anyone on your LAN can use your DeepSeek account** through the proxy — no auth is required.
+- **Anyone on your LAN can use your DeepSeek account** through the proxy. There is no auth gate: a client that sends `dummy` (or any placeholder / short string) is served using the token stored in **your** `~/.freeseek/config.json`. They don't need to know your token — `dummy` is enough.
 - Every request they make is billed to and rate-limited against *your* DeepSeek session.
 - If you port-forward it, anyone on the internet can do the same.
 
