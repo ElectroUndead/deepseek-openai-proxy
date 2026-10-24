@@ -3,3 +3,7 @@ node_modules/
 .env
 .env.*
 dist/
+
+# Large local artifacts
+*.mp4
+.deepseek-proxy-tutorial*

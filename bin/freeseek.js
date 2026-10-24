@@ -1583,14 +1583,15 @@ function startServer(port = 8787) {
 </html>`);
   });
 
-  server.listen(port, "127.0.0.1", () => {
+  const host = process.env.HOST || "0.0.0.0";
+  server.listen(port, host, () => {
     const hasToken = !!(getStoredToken() || process.env.DEEPSEEK_AUTH_TOKEN);
     console.log("");
     console.log("============================================================");
     console.log("  freeseek - Local DeepSeek OpenAI Proxy");
     console.log("============================================================");
-    console.log("  Local Dashboard: http://127.0.0.1:" + port);
-    console.log("  OpenAI Base URL: http://127.0.0.1:" + port + "/v1");
+    console.log("  Dashboard:       http://" + host + ":" + port);
+    console.log("  OpenAI Base URL: http://" + host + ":" + port + "/v1");
     console.log("  API Key:         " + (hasToken ? "dummy (token saved locally)" : "Requires DeepSeek Token (open dashboard)"));
     console.log("  Models:          deepseek-reasoner, deepseek-chat");
     console.log("  Stored Config:   " + getConfigFilePath());

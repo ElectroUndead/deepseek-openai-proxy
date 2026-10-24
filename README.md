@@ -87,5 +87,41 @@ Visit the online guide at:
 
 ---
 
+## Security & Network Exposure
+
+Your DeepSeek session token is stored in plaintext at `~/.freeseek/config.json` on your own machine. It is never sent anywhere except `chat.deepseek.com`.
+
+**Default bind address:** `127.0.0.1` (loopback only — nothing on your network can reach it).
+
+If you set `HOST` (or run the Docker image, which sets `HOST=0.0.0.0`), the proxy listens on **all interfaces**. That means:
+
+- **Anyone on your LAN can use your DeepSeek account** through the proxy — no auth is required.
+- Every request they make is billed to and rate-limited against *your* DeepSeek session.
+- If you port-forward it, anyone on the internet can do the same.
+
+Only bind to `0.0.0.0` on a network you trust, and never expose the port publicly without putting an authenticating reverse proxy in front of it.
+
+```bash
+# loopback only (default)
+freeseek
+
+# all interfaces — required inside Docker, risky on a laptop
+HOST=0.0.0.0 freeseek
+```
+
+---
+
+## Scope & Caveats
+
+This proxy talks to DeepSeek's **consumer web API** (`chat.deepseek.com`) using a session token taken from your browser — not the official DeepSeek platform API. Practical consequences:
+
+- DeepSeek can change their internal API or anti-bot challenge at any time, which will break the proxy until it's updated.
+- Automated use of a consumer session may violate DeepSeek's Terms of Service and can result in your account being limited or banned.
+- "No rate limits" refers to the absence of an API billing quota — DeepSeek's own web-side throttling still applies.
+
+Use it on your own account and at your own discretion.
+
+---
+
 ## License
-MIT License. Free for personal and commercial use.
+MIT License. See [LICENSE](LICENSE).
