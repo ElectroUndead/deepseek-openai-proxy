@@ -12,6 +12,11 @@ const crypto = require("node:crypto");
 const os = require("node:os");
 const { exec } = require("node:child_process");
 
+function logEvent(level, message) {
+  const ts = new Date().toLocaleTimeString("en-US", { hour12: false });
+  console.log(`[${ts}] [${level}] ${message}`);
+}
+
 // -----------------------------------------------------------------------------
 // Local Configuration & Persistent Token Storage (~/.freeseek/config.json)
 // -----------------------------------------------------------------------------
@@ -315,55 +320,86 @@ function extractImagesFromMessages(messages) {
   return urls;
 }
 
-async function uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders) {
+async function solvePowForTarget(targetPath, baseHeaders) {
+  const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
+    method: "POST",
+    headers: baseHeaders,
+    body: JSON.stringify({ target_path: targetPath }),
+  });
+  if (!powResp.ok) throw new Error(`PoW endpoint HTTP ${powResp.status}`);
+  const powData = await powResp.json();
+  if (powData.code !== 0) throw new Error(powData.msg || "PoW challenge error");
+  const challengeObj = powData.data.biz_data.challenge;
+  const answer = solveDeepSeekPoW(challengeObj);
+  return btoa(JSON.stringify({
+    algorithm: challengeObj.algorithm,
+    challenge: challengeObj.challenge,
+    salt: challengeObj.salt,
+    answer: answer,
+    signature: challengeObj.signature,
+    target_path: challengeObj.target_path,
+  }));
+}
+
+async function uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders, modelType) {
+  const targetPath = "/api/v0/file/upload_file";
+  const powHeaderValue = await solvePowForTarget(targetPath, baseHeaders);
+
+  const uploadHeaders = {
+    ...baseHeaders,
+    "authorization": token.toLowerCase().startsWith("bearer ") ? token : `Bearer ${token}`,
+    "referer": `https://chat.deepseek.com/a/chat/s/${sessionId}`,
+    "x-ds-pow-response": powHeaderValue,
+    "x-file-size": String(imgInfo.bytes.length),
+    "x-model-type": modelType || "deepseek-chat",
+    "x-thinking-enabled": "0",
+  };
+  delete uploadHeaders["content-type"];
+
+  const formData = new FormData();
+  const blob = new Blob([imgInfo.bytes], { type: imgInfo.mimeType });
+  formData.append("file", blob, imgInfo.filename);
+
+  const uploadResp = await fetch(`https://chat.deepseek.com${targetPath}`, {
+    method: "POST",
+    headers: uploadHeaders,
+    body: formData,
+  });
+
+  const rawBody = await uploadResp.text();
+  let uploadData;
   try {
-    const uploadHeaders = {
-      ...baseHeaders,
-      "referer": `https://chat.deepseek.com/a/chat/s/${sessionId}`,
-    };
-    delete uploadHeaders["content-type"];
-
-    const formData = new FormData();
-    const blob = new Blob([imgInfo.bytes], { type: imgInfo.mimeType });
-    formData.append("file", blob, imgInfo.filename);
-
-    const uploadResp = await fetch("https://chat.deepseek.com/api/v0/file/upload", {
-      method: "POST",
-      headers: uploadHeaders,
-      body: formData,
-    });
-
-    if (!uploadResp.ok) return null;
-    const uploadData = await uploadResp.json();
-    if (uploadData.code !== 0 || !uploadData.data || !uploadData.data.biz_data) return null;
-
-    const fileId = uploadData.data.biz_data.id || uploadData.data.biz_data.file_id;
-    if (!fileId) return null;
-
-    // Brief poll to wait for status to be ready
-    for (let poll = 0; poll < 4; poll++) {
-      try {
-        const statusResp = await fetch(
-          `https://chat.deepseek.com/api/v0/file/fetch_files?file_ids=${encodeURIComponent(fileId)}`,
-          { method: "GET", headers: uploadHeaders }
-        );
-        if (statusResp.ok) {
-          const statusData = await statusResp.json();
-          const files = statusData.data?.biz_data?.files || [];
-          const f = files.find((item) => item.id === fileId);
-          if (f && f.status && !["PENDING", "UPLOADING", "PROCESSING"].includes(f.status.toUpperCase())) {
-            break;
-          }
-        }
-      } catch {}
-      await new Promise((r) => setTimeout(r, 300));
-    }
-
-    return fileId;
-  } catch (err) {
-    console.error("Image upload error:", err);
-    return null;
+    uploadData = JSON.parse(rawBody);
+  } catch {
+    throw new Error(`DeepSeek upload returned non-JSON (HTTP ${uploadResp.status})`);
   }
+  if (uploadData.code !== 0 || !uploadData.data || !uploadData.data.biz_data) {
+    throw new Error(`DeepSeek upload failed code=${uploadData.code} msg=${uploadData.msg || ""}`);
+  }
+
+  const fileId = uploadData.data.biz_data.id || uploadData.data.biz_data.file_id;
+  if (!fileId) throw new Error("DeepSeek upload returned no file id");
+
+  // Brief poll to wait for status to be ready
+  for (let poll = 0; poll < 4; poll++) {
+    try {
+      const statusResp = await fetch(
+        `https://chat.deepseek.com/api/v0/file/fetch_files?file_ids=${encodeURIComponent(fileId)}`,
+        { method: "GET", headers: uploadHeaders }
+      );
+      if (statusResp.ok) {
+        const statusData = await statusResp.json();
+        const files = statusData.data?.biz_data?.files || [];
+        const f = files.find((item) => item.id === fileId);
+        if (f && f.status && !["PENDING", "UPLOADING", "PROCESSING"].includes(f.status.toUpperCase())) {
+          break;
+        }
+      }
+    } catch {}
+    await new Promise((r) => setTimeout(r, 300));
+  }
+
+  return fileId;
 }
 
 // -----------------------------------------------------------------------------
@@ -492,6 +528,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
   const targetSessionId = options.sessionId || null;
   const parentMessageId = options.parentMessageId !== undefined ? options.parentMessageId : null;
   const useThinking = options.thinkingEnabled !== undefined ? options.thinkingEnabled : thinkingEnabled;
+  const modelType = options.modelType || "deepseek-chat";
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -502,11 +539,15 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
         for (const imgUrl of imageUrls) {
           try {
             const imgInfo = await getImageInfo(imgUrl);
-            if (imgInfo) {
-              const fileId = await uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders);
-              if (fileId) refFileIds.push(fileId);
+            if (!imgInfo) {
+              logEvent("WARN", `image skipped: unsupported or unreachable URL (${imgUrl.slice(0, 60)})`);
+              continue;
             }
-          } catch {}
+            const fileId = await uploadImageToDeepSeek(imgInfo, token, sessionId, baseHeaders, modelType);
+            if (fileId) refFileIds.push(fileId);
+          } catch (imgErr) {
+            logEvent("WARN", `image upload failed: ${imgErr.message}`);
+          }
         }
       }
       const uniqueFileIds = [...new Set(refFileIds)];
@@ -514,29 +555,12 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       let powHeaderValue = null;
       for (let powAttempt = 0; powAttempt < 5; powAttempt++) {
         try {
-          const powResp = await fetch("https://chat.deepseek.com/api/v0/chat/create_pow_challenge", {
-            method: "POST",
-            headers: baseHeaders,
-            body: JSON.stringify({ target_path: "/api/v0/chat/completion" }),
-          });
-          if (!powResp.ok) throw new Error(`PoW endpoint HTTP ${powResp.status}`);
-          const powData = await powResp.json();
-          if (powData.code !== 0) throw new Error(powData.msg || "PoW challenge error");
-          const challengeObj = powData.data.biz_data.challenge;
-
-          // Local node runs fast without worker CPU limits
-          const answer = solveDeepSeekPoW(challengeObj);
-
-          powHeaderValue = btoa(JSON.stringify({
-            algorithm: challengeObj.algorithm,
-            challenge: challengeObj.challenge,
-            salt: challengeObj.salt,
-            answer: answer,
-            signature: challengeObj.signature,
-            target_path: challengeObj.target_path,
-          }));
+          powHeaderValue = await solvePowForTarget("/api/v0/chat/completion", baseHeaders);
           break;
         } catch (pe) {
+          if (powAttempt === 4) {
+            logEvent("ERROR", `PoW challenge failed: ${pe.message}`);
+          }
           if (powAttempt < 4) await new Promise((r) => setTimeout(r, 200 * (powAttempt + 1)));
         }
       }
@@ -573,6 +597,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
       activeSessionCache.delete(token);
 
       if ([429, 500, 502, 503, 504].includes(dsResponse.status) && attempt < 2) {
+        logEvent("WARN", `DeepSeek completion HTTP ${dsResponse.status}, retry ${attempt + 1}/3`);
         await new Promise((r) => setTimeout(r, 800));
         continue;
       }
@@ -582,6 +607,7 @@ async function dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, 
     } catch (e) {
       lastErr = e;
       activeSessionCache.delete(token);
+      logEvent("ERROR", `dispatch attempt ${attempt + 1}/3 failed: ${e.message}`);
       if (attempt < 2) await new Promise((r) => setTimeout(r, 800));
     }
   }
@@ -703,6 +729,9 @@ async function handleChatCompletion(body, token, res) {
   const imageUrls = extractImagesFromMessages(messages);
   const completionId = "chatcmpl-" + crypto.randomUUID().replace(/-/g, "").substring(0, 16);
   const createdTimestamp = Math.floor(Date.now() / 1000);
+  const requestStartedAt = Date.now();
+
+  logEvent("INFO", `request model=${model} stream=${isStream} images=${imageUrls.length} promptChars=${prompt.length}`);
 
   if (isStream) {
     res.writeHead(200, {
@@ -723,12 +752,12 @@ async function handleChatCompletion(body, token, res) {
     let dsResponse = null;
     let activeSessionId = null;
     try {
-      const dispatchResult = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+      const dispatchResult = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls, { modelType: model });
       dsResponse = dispatchResult.response;
       activeSessionId = dispatchResult.sessionId;
     } catch (dispatchErr) {
-      console.error("  [Error] DeepSeek dispatch error:", dispatchErr.message);
-      const failMsg = "DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.";
+      logEvent("ERROR", `dispatch failed: ${dispatchErr.message}`);
+      const failMsg = `DeepSeek request failed: ${dispatchErr.message}`;
       emitStreamDelta(res, completionId, model, createdTimestamp, "RESPONSE", failMsg);
       writeSSE(res, {
         id: completionId,
@@ -743,6 +772,7 @@ async function handleChatCompletion(body, token, res) {
     }
 
     let lastResponseMsgId = null;
+    let upstreamError = null;
     const reader = dsResponse.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
@@ -806,6 +836,11 @@ async function handleChatCompletion(body, token, res) {
 
             try {
               const data = JSON.parse(dataStr);
+              if (data.code !== undefined && data.code !== 0) {
+                upstreamError = `DeepSeek code=${data.code} msg=${data.msg || data.message || ""}`;
+                logEvent("ERROR", `upstream stream error: ${upstreamError}`);
+                break;
+              }
               if (data.response_message_id) {
                 lastResponseMsgId = data.response_message_id;
               }
@@ -815,14 +850,12 @@ async function handleChatCompletion(body, token, res) {
 
               if (data.v && data.v.response && data.v.response.fragments && data.v.response.fragments.length > 0) {
                 currentFragmentType = data.v.response.fragments[0].type || "THINK";
-                const initialContent = data.v.response.fragments[0].content || "";
-                if (initialContent) {
-                  if (currentFragmentType === "THINK") {
-                    accumulatedThinkText += initialContent;
-                    emitStreamDelta(res, completionId, model, createdTimestamp, "THINK", initialContent);
-                  } else {
-                    await handleResponseChunk(initialContent);
-                  }
+                const c = data.v.response.fragments[0].content || "";
+                if (currentFragmentType === "THINK") {
+                  accumulatedThinkText += c;
+                  emitStreamDelta(res, completionId, model, createdTimestamp, "THINK", c);
+                } else {
+                  await handleResponseChunk(c);
                 }
               }
 
@@ -856,6 +889,11 @@ async function handleChatCompletion(body, token, res) {
         emitStreamDelta(res, completionId, model, createdTimestamp, "RESPONSE", pendingResponseBuffer);
         hasEmittedContent = true;
         pendingResponseBuffer = "";
+      }
+
+      if (upstreamError && !hasEmittedContent) {
+        emitStreamDelta(res, completionId, model, createdTimestamp, "RESPONSE", `DeepSeek request failed: ${upstreamError}`);
+        hasEmittedContent = true;
       }
 
       const dsml = parseDSML(accumulatedResponseText);
@@ -921,15 +959,20 @@ async function handleChatCompletion(body, token, res) {
       });
       res.write("data: [DONE]\n\n");
     } finally {
+      logEvent(
+        upstreamError ? "ERROR" : "INFO",
+        `response model=${model} durationMs=${Date.now() - requestStartedAt} emitted=${hasEmittedContent}${upstreamError ? ` error=${upstreamError}` : ""}`
+      );
       res.end();
     }
   } else {
     // Non-streaming Response
     try {
-      const dispatchResult = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls);
+      const dispatchResult = await dispatchDeepSeekCompletion(prompt, messages, tools, baseHeaders, token, thinkingEnabled, imageUrls, { modelType: model });
       const dsResponse = dispatchResult.response;
       const activeSessionId = dispatchResult.sessionId;
       let lastResponseMsgId = null;
+      let upstreamError = null;
       const reader = dsResponse.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -950,6 +993,11 @@ async function handleChatCompletion(body, token, res) {
             if (!dataStr) continue;
             try {
               const data = JSON.parse(dataStr);
+              if (data.code !== undefined && data.code !== 0) {
+                upstreamError = `DeepSeek code=${data.code} msg=${data.msg || data.message || ""}`;
+                logEvent("ERROR", `upstream stream error: ${upstreamError}`);
+                break;
+              }
               if (data.response_message_id) {
                 lastResponseMsgId = data.response_message_id;
               }
@@ -983,7 +1031,9 @@ async function handleChatCompletion(body, token, res) {
       let toolCalls = undefined;
       let finishReason = "stop";
 
-      if (dsml && dsml.toolCalls.length > 0) {
+      if (upstreamError && !responseAccumulated) {
+        messageContent = `DeepSeek request failed: ${upstreamError}`;
+      } else if (dsml && dsml.toolCalls.length > 0) {
         messageContent = dsml.contentBefore || null;
         toolCalls = dsml.toolCalls;
         finishReason = "tool_calls";
@@ -1008,7 +1058,12 @@ async function handleChatCompletion(body, token, res) {
           finish_reason: finishReason,
         }],
       }));
+      logEvent(
+        upstreamError ? "ERROR" : "INFO",
+        `response model=${model} durationMs=${Date.now() - requestStartedAt} chars=${(messageContent || "").length}${upstreamError ? ` error=${upstreamError}` : ""}`
+      );
     } catch (err) {
+      logEvent("ERROR", `non-stream request failed: ${err.message}`);
       res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
       res.end(JSON.stringify({
         id: completionId,
@@ -1019,7 +1074,7 @@ async function handleChatCompletion(body, token, res) {
           index: 0,
           message: {
             role: "assistant",
-            content: "DeepSeek's servers are currently experiencing high traffic. Please click 'continue' or send your message again in a moment.",
+            content: `DeepSeek request failed: ${err.message}`,
           },
           finish_reason: "stop",
         }],
@@ -1217,8 +1272,6 @@ function startServer(port = 8787) {
       req.on("end", async () => {
         try {
           const body = JSON.parse(bodyStr);
-          const modelName = body.model || "deepseek-reasoner";
-          console.log(`[${new Date().toLocaleTimeString()}] Chat request -> model: ${modelName}, stream: ${body.stream === true}`);
           await handleChatCompletion(body, `Bearer ${effectiveToken}`, res);
         } catch (err) {
           console.error("Request parse error:", err);
