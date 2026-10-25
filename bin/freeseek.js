@@ -19,6 +19,42 @@ function getConfigFilePath() {
   return path.join(os.homedir(), ".freeseek", "config.json");
 }
 
+let cachedAdminSecret = null;
+
+function getOrCreateAdminSecret() {
+  if (cachedAdminSecret) return cachedAdminSecret;
+  try {
+    const configPath = getConfigFilePath();
+    if (fs.existsSync(configPath)) {
+      const data = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      if (data && typeof data.adminSecret === "string" && data.adminSecret.length >= 32) {
+        cachedAdminSecret = data.adminSecret;
+        return cachedAdminSecret;
+      }
+    }
+  } catch (e) {}
+  const secret = crypto.randomBytes(24).toString("hex");
+  try {
+    const dir = path.join(os.homedir(), ".freeseek");
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    }
+    try { fs.chmodSync(dir, 0o700); } catch (e) {}
+    const configPath = getConfigFilePath();
+    let existing = {};
+    if (fs.existsSync(configPath)) {
+      try { existing = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch (e) {}
+    }
+    existing.adminSecret = secret;
+    fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), { encoding: "utf-8", mode: 0o600 });
+    try { fs.chmodSync(configPath, 0o600); } catch (e) {}
+  } catch (e) {
+    console.error("Failed to persist admin secret:", e.message);
+  }
+  cachedAdminSecret = secret;
+  return secret;
+}
+
 function getStoredToken() {
   try {
     const configPath = getConfigFilePath();
@@ -41,8 +77,9 @@ function saveStoredToken(token) {
     if (!clean || clean.length < 10) return false;
     const dir = path.join(os.homedir(), ".freeseek");
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
+    try { fs.chmodSync(dir, 0o700); } catch (e) {}
     const configPath = getConfigFilePath();
     let existing = {};
     if (fs.existsSync(configPath)) {
@@ -50,7 +87,8 @@ function saveStoredToken(token) {
     }
     existing.token = clean;
     existing.updatedAt = new Date().toISOString();
-    fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
+    fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), { encoding: "utf-8", mode: 0o600 });
+    try { fs.chmodSync(configPath, 0o600); } catch (e) {}
     return true;
   } catch (e) {
     console.error("Failed to save token:", e);
@@ -65,7 +103,8 @@ function clearStoredToken() {
       let existing = {};
       try { existing = JSON.parse(fs.readFileSync(configPath, "utf-8")); } catch(e) {}
       delete existing.token;
-      fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), "utf-8");
+      fs.writeFileSync(configPath, JSON.stringify(existing, null, 2), { encoding: "utf-8", mode: 0o600 });
+      try { fs.chmodSync(configPath, 0o600); } catch (e) {}
     }
     return true;
   } catch (e) {
@@ -574,11 +613,70 @@ function emitStreamDelta(res, completionId, model, created, fragmentType, text) 
 // -----------------------------------------------------------------------------
 // HTTP Request Router & Handler
 // -----------------------------------------------------------------------------
+let activePort = 8787;
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "*",
 };
+
+function getAllowedOrigins() {
+  return new Set([
+    `http://127.0.0.1:${activePort}`,
+    `http://localhost:${activePort}`,
+    "https://chat.deepseek.com",
+  ]);
+}
+
+function getCorsHeaders(req) {
+  const origin = req.headers.origin;
+  if (origin && getAllowedOrigins().has(origin)) {
+    return {
+      "Access-Control-Allow-Origin": origin,
+      "Vary": "Origin",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "content-type, x-freeseek-admin",
+    };
+  }
+  return { "Vary": "Origin" };
+}
+
+function isLoopbackPeer(req) {
+  const addr = (req.socket.remoteAddress || "").toLowerCase();
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+function isLoopbackRequest(req) {
+  if (!isLoopbackPeer(req)) return false;
+  const host = (req.headers.host || "").toLowerCase();
+  return host === `127.0.0.1:${activePort}` || host === `localhost:${activePort}`;
+}
+
+function denyRequest(req, res) {
+  res.writeHead(403, { "Content-Type": "application/json", ...getCorsHeaders(req) });
+  res.end(JSON.stringify({ success: false, error: "Forbidden" }));
+  return false;
+}
+
+function safeEqual(a, b) {
+  const x = Buffer.from(String(a || ""), "utf-8");
+  const y = Buffer.from(String(b || ""), "utf-8");
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+// Admin actions require a loopback TCP peer, a loopback Host, an allowed Origin,
+// and a per-install secret. The custom header cannot be set cross-origin
+// without a preflight we reject.
+function requireAdmin(req, res) {
+  if (!isLoopbackRequest(req)) return denyRequest(req, res);
+  const origin = req.headers.origin;
+  if (origin && !getAllowedOrigins().has(origin)) return denyRequest(req, res);
+  const supplied = req.headers["x-freeseek-admin"];
+  if (typeof supplied !== "string") return denyRequest(req, res);
+  if (!safeEqual(supplied, getOrCreateAdminSecret())) return denyRequest(req, res);
+  return true;
+}
 
 async function handleChatCompletion(body, token, res) {
   const messages = body.messages || [];
@@ -934,11 +1032,21 @@ async function handleChatCompletion(body, token, res) {
 // Server Initialization
 // -----------------------------------------------------------------------------
 function startServer(port = 8787) {
+  activePort = port;
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || "127.0.0.1:" + port}`);
 
     if (req.method === "OPTIONS") {
-      res.writeHead(204, CORS_HEADERS);
+      if (url.pathname.startsWith("/api/")) {
+        const origin = req.headers.origin;
+        if (!isLoopbackRequest(req) || !origin || !getAllowedOrigins().has(origin)) {
+          denyRequest(req, res);
+          return;
+        }
+        res.writeHead(204, getCorsHeaders(req));
+      } else {
+        res.writeHead(204, CORS_HEADERS);
+      }
       res.end();
       return;
     }
@@ -948,15 +1056,11 @@ function startServer(port = 8787) {
       const storedToken = getStoredToken();
       const activeToken = storedToken || process.env.DEEPSEEK_AUTH_TOKEN || "";
       const hasToken = !!activeToken && activeToken.length >= 10;
-      const masked = hasToken
-        ? `${activeToken.substring(0, 6)}...${activeToken.substring(activeToken.length - 4)}`
-        : "";
-      res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+      res.writeHead(200, { "Content-Type": "application/json", "Vary": "Origin" });
       res.end(JSON.stringify({
         status: "ok",
         mode: "local-node",
         hasToken,
-        tokenPreview: masked,
         port,
         configPath: getConfigFilePath(),
         timestamp: new Date().toISOString(),
@@ -966,6 +1070,7 @@ function startServer(port = 8787) {
 
     // Token Management API: Save Token
     if (url.pathname === "/api/save-token" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
       let bodyStr = "";
       req.on("data", (chunk) => { bodyStr += chunk; });
       req.on("end", () => {
@@ -973,21 +1078,21 @@ function startServer(port = 8787) {
           const data = JSON.parse(bodyStr);
           const token = data.token;
           if (!token || typeof token !== "string" || token.trim().length < 10) {
-            res.writeHead(400, { "Content-Type": "application/json", ...CORS_HEADERS });
+            res.writeHead(400, { "Content-Type": "application/json", ...getCorsHeaders(req) });
             res.end(JSON.stringify({ success: false, error: "Invalid token: must be at least 10 characters." }));
             return;
           }
           const saved = saveStoredToken(token);
           if (saved) {
             console.log(`[${new Date().toLocaleTimeString()}] DeepSeek token saved to ${getConfigFilePath()}`);
-            res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+            res.writeHead(200, { "Content-Type": "application/json", ...getCorsHeaders(req) });
             res.end(JSON.stringify({ success: true, message: "Token saved successfully!" }));
           } else {
-            res.writeHead(500, { "Content-Type": "application/json", ...CORS_HEADERS });
+            res.writeHead(500, { "Content-Type": "application/json", ...getCorsHeaders(req) });
             res.end(JSON.stringify({ success: false, error: "Failed to write configuration file." }));
           }
         } catch (e) {
-          res.writeHead(400, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.writeHead(400, { "Content-Type": "application/json", ...getCorsHeaders(req) });
           res.end(JSON.stringify({ success: false, error: "Invalid JSON: " + e.message }));
         }
       });
@@ -996,15 +1101,17 @@ function startServer(port = 8787) {
 
     // Token Management API: Clear Token
     if (url.pathname === "/api/clear-token" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
       clearStoredToken();
       console.log(`[${new Date().toLocaleTimeString()}] DeepSeek token disconnected`);
-      res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+      res.writeHead(200, { "Content-Type": "application/json", ...getCorsHeaders(req) });
       res.end(JSON.stringify({ success: true, message: "Token disconnected." }));
       return;
     }
 
     // Token Management API: Test Token
     if (url.pathname === "/api/test-token" && req.method === "POST") {
+      if (!requireAdmin(req, res)) return;
       let bodyStr = "";
       req.on("data", (chunk) => { bodyStr += chunk; });
       req.on("end", async () => {
@@ -1019,16 +1126,16 @@ function startServer(port = 8787) {
           testTok = getStoredToken() || process.env.DEEPSEEK_AUTH_TOKEN || "";
         }
         if (!testTok || testTok.length < 10) {
-          res.writeHead(400, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.writeHead(400, { "Content-Type": "application/json", ...getCorsHeaders(req) });
           res.end(JSON.stringify({ success: false, error: "No token saved or provided to test." }));
           return;
         }
         try {
           const result = await testDeepSeekToken(testTok);
-          res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.writeHead(200, { "Content-Type": "application/json", ...getCorsHeaders(req) });
           res.end(JSON.stringify({ success: true, latency: result.latency }));
         } catch (testErr) {
-          res.writeHead(200, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.writeHead(200, { "Content-Type": "application/json", ...getCorsHeaders(req) });
           res.end(JSON.stringify({ success: false, error: testErr.message }));
         }
       });
@@ -1065,8 +1172,29 @@ function startServer(port = 8787) {
         callerToken.toLowerCase() === "freeseek" ||
         callerToken.length < 20;
 
+      const remoteClientKey = process.env.FREESEEK_CLIENT_KEY || "";
+      if (!isLoopbackPeer(req)) {
+        if (!remoteClientKey) {
+          res.writeHead(403, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.end(JSON.stringify({
+            error: {
+              message: "Remote access is disabled. Set FREESEEK_CLIENT_KEY to allow non-loopback clients.",
+              type: "remote_access_disabled",
+            },
+          }));
+          return;
+        }
+        if (!safeEqual(callerToken, remoteClientKey)) {
+          res.writeHead(401, { "Content-Type": "application/json", ...CORS_HEADERS });
+          res.end(JSON.stringify({ error: { message: "Invalid API key.", type: "invalid_api_key" } }));
+          return;
+        }
+      }
+
       let effectiveToken = "";
-      if (!isDummy) {
+      if (!isLoopbackPeer(req)) {
+        effectiveToken = process.env.DEEPSEEK_AUTH_TOKEN || getStoredToken();
+      } else if (!isDummy) {
         effectiveToken = callerToken;
       } else {
         effectiveToken = process.env.DEEPSEEK_AUTH_TOKEN || getStoredToken();
@@ -1115,9 +1243,18 @@ function startServer(port = 8787) {
     }
 
     // Local Setup & Dashboard HTML (Monochrome, Minimalist, Zero Emojis)
-    const syncBookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Token NOT found: Please log in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}fetch('http://127.0.0.1:${port}/api/save-token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t}),mode:'cors'}).then(function(res){if(res.ok){alert('Connected to local Freeseek! Your token is synced. You can now use Cursor with API Key: dummy');}else{alert('Token copied to clipboard! (Could not auto-sync to local port ${port})');}}).catch(function(){alert('Token copied to clipboard! Paste it into the Freeseek setup dashboard at http://127.0.0.1:${port}');});}catch(e){alert('Error: '+e);}})();`;
+    // The page embeds the admin secret, so only serve it to loopback peers
+    // addressed via a loopback Host (blocks DNS-rebinding reads).
+    if (!isLoopbackRequest(req)) {
+      res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8", "Vary": "Origin" });
+      res.end("Forbidden");
+      return;
+    }
+    const adminSecret = getOrCreateAdminSecret();
+    const syncBookmarkletCode = `javascript:(function(){try{let t='';const raw=localStorage.getItem('userToken');if(raw){try{const p=JSON.parse(raw);t=(p&&typeof p==='object')?(p.value||p.token||''):p;}catch(e){t=raw;}}if(typeof t==='string'){t=t.trim();while(t.toLowerCase().startsWith('bearer '))t=t.substring(7).trim();}if(!t||t==='null'||t==='undefined'||t==='{}'||t.length<10){return alert('Token NOT found: Please log in to chat.deepseek.com first and try again.');}try{navigator.clipboard.writeText(t);}catch(e){}try{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}catch(e){}fetch('http://127.0.0.1:${port}/api/save-token',{method:'POST',headers:{'Content-Type':'application/json','x-freeseek-admin':${JSON.stringify(adminSecret)}},body:JSON.stringify({token:t}),mode:'cors'}).then(function(res){if(res.ok){alert('Connected to local Freeseek! Your token is synced. You can now use Cursor with API Key: dummy');}else{alert('Token copied to clipboard! (Could not auto-sync to local port ${port})');}}).catch(function(){alert('Token copied to clipboard! Paste it into the Freeseek setup dashboard at http://127.0.0.1:${port}');});}catch(e){alert('Error: '+e);}})();`;
 
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", ...CORS_HEADERS });
+    // No CORS headers here: this page contains the admin secret.
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Vary": "Origin" });
     res.end(`<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1477,6 +1614,8 @@ function startServer(port = 8787) {
   <div id="toast" class="toast"></div>
 
   <script>
+    const ADMIN_SECRET = ${JSON.stringify(adminSecret)};
+
     async function loadStatus() {
       try {
         const res = await fetch('/api/status');
@@ -1486,9 +1625,9 @@ function startServer(port = 8787) {
         const clearBtn = document.getElementById('clear-btn');
 
         if (data.hasToken) {
-          badge.textContent = 'Connected (' + data.tokenPreview + ')';
+          badge.textContent = 'Connected';
           badge.className = 'status-badge connected';
-          text.textContent = 'Token saved and active (' + data.tokenPreview + ')';
+          text.textContent = 'Token saved and active';
           clearBtn.style.display = 'inline-block';
         } else {
           badge.textContent = 'Needs Token';
@@ -1511,7 +1650,7 @@ function startServer(port = 8787) {
       try {
         const res = await fetch('/api/save-token', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'x-freeseek-admin': ADMIN_SECRET },
           body: JSON.stringify({ token: val })
         });
         const d = await res.json();
@@ -1530,7 +1669,7 @@ function startServer(port = 8787) {
     async function disconnectToken() {
       if (!confirm('Disconnect saved DeepSeek token?')) return;
       try {
-        await fetch('/api/clear-token', { method: 'POST' });
+        await fetch('/api/clear-token', { method: 'POST', headers: { 'x-freeseek-admin': ADMIN_SECRET } });
         showToast('Token disconnected.');
         loadStatus();
       } catch (e) {
@@ -1545,7 +1684,7 @@ function startServer(port = 8787) {
       status.textContent = 'Testing connection to DeepSeek...';
 
       try {
-        const res = await fetch('/api/test-token', { method: 'POST' });
+        const res = await fetch('/api/test-token', { method: 'POST', headers: { 'x-freeseek-admin': ADMIN_SECRET } });
         const d = await res.json();
         if (d.success) {
           status.style.color = '#000';
@@ -1583,7 +1722,7 @@ function startServer(port = 8787) {
 </html>`);
   });
 
-  const host = process.env.HOST || "0.0.0.0";
+  const host = process.env.HOST || "127.0.0.1";
   server.listen(port, host, () => {
     const hasToken = !!(getStoredToken() || process.env.DEEPSEEK_AUTH_TOKEN);
     console.log("");
@@ -1595,6 +1734,9 @@ function startServer(port = 8787) {
     console.log("  API Key:         " + (hasToken ? "dummy (token saved locally)" : "Requires DeepSeek Token (open dashboard)"));
     console.log("  Models:          deepseek-reasoner, deepseek-chat");
     console.log("  Stored Config:   " + getConfigFilePath());
+    if (host !== "127.0.0.1" && host !== "localhost") {
+      console.log("  WARNING: bound to " + host + " - token admin API is exposed beyond loopback");
+    }
     console.log("============================================================");
     console.log("  Press Ctrl+C to stop.");
     console.log("");
